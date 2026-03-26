@@ -237,6 +237,160 @@ def build_close_command(position_id: int, ticker: str) -> str:
 
 
 # =============================================================================
+#  TIMED INPUT HELPER
+# =============================================================================
+
+def timed_input(prompt: str, timeout: int = 30, default: str = "n") -> str:
+    """
+    Ask the user a question with a timeout.
+    If no response within timeout seconds, returns default.
+    Works on both Mac/Linux and Windows.
+    """
+    import sys
+    import threading
+
+    result = [default]
+    answered = threading.Event()
+
+    def _ask():
+        try:
+            sys.stdout.write(prompt)
+            sys.stdout.flush()
+            val = sys.stdin.readline().strip().lower()
+            result[0] = val if val else default
+        except Exception:
+            result[0] = default
+        answered.set()
+
+    t = threading.Thread(target=_ask, daemon=True)
+    t.start()
+    answered.wait(timeout=timeout)
+
+    if not answered.is_set():
+        print(f"\n  (No response — defaulting to '{default}')")
+        result[0] = default
+
+    return result[0]
+
+
+def ask_track_position(scanner_result: Dict, tracker: PositionTracker,
+                        confidence: float) -> Optional[int]:
+    """
+    Ask user if they want to track this position.
+    If yes, ask for fill price and open the position.
+    Returns position_id if opened, None otherwise.
+    Times out after 30 seconds and defaults to n.
+    """
+    ticker  = scanner_result.get("ticker", "?")
+    pricing = scanner_result.get("pricing", {})
+    suggested_entry = pricing.get("entry", 0)
+
+    sep = "=" * 64
+    print("\n" + sep)
+    print(f"  Did you execute this trade in ThinkorSwim?")
+    response = timed_input(
+        f"  Track {ticker} position? (y/n, 30s timeout): ",
+        timeout=30, default="n"
+    )
+
+    if response != "y":
+        print(f"  Skipped — not tracking {ticker}")
+        print(sep + "\n")
+        return None
+
+    # Ask for fill price
+    fill_str = timed_input(
+        f"  What did you pay? (suggested ${suggested_entry}, press enter to use): ",
+        timeout=30, default=str(suggested_entry)
+    )
+
+    try:
+        fill_price = float(fill_str) if fill_str else suggested_entry
+    except ValueError:
+        fill_price = suggested_entry
+        print(f"  Could not parse price — using suggested ${suggested_entry}")
+
+    # Open the position
+    position_id = tracker.open_position(scanner_result)
+    if position_id:
+        # Update with actual fill price
+        entry_cost = fill_price * 100 * pricing.get("contracts", 1)
+        stop_price  = round(fill_price * (1 - cfg.STOP_LOSS_PCT), 2)
+        target_price = round(fill_price * (1 + cfg.PROFIT_TARGET_PCT), 2)
+        with db.get_connection() as conn:
+            conn.execute(
+                """UPDATE positions SET
+                   entry_price = ?, entry_cost = ?,
+                   stop_price = ?, target_price = ?
+                   WHERE id = ?""",
+                (fill_price, entry_cost, stop_price, target_price, position_id)
+            )
+        print(f"  ✓ {ticker} tracked — entry=${fill_price} "
+              f"stop=${stop_price} target=${target_price}")
+        db.log_journal_event(
+            "POSITION_OPENED", ticker=ticker, position_id=position_id,
+            action="ENTER", confidence=confidence,
+            reason_summary=f"User confirmed entry: {ticker} @ ${fill_price}",
+            details={"fill_price": fill_price, "suggested": suggested_entry}
+        )
+    else:
+        print(f"  Could not open position — check logs")
+
+    print(sep + "\n")
+    return position_id
+
+
+def ask_close_position(position_id: int, position: Dict, tracker: PositionTracker,
+                        current_price: float, confidence: float,
+                        reason: str) -> bool:
+    """
+    Ask user if they want to close this position.
+    If yes, ask for exit fill price and close it.
+    Returns True if closed, False if kept open.
+    Times out after 30 seconds and defaults to n.
+    """
+    ticker = position.get("ticker", "?")
+    pnl    = tracker.unrealized_pnl(position_id, current_price)
+    r      = tracker.unrealized_r(position_id, current_price)
+    sign   = "+" if pnl >= 0 else ""
+
+    sep = "=" * 64
+    print("\n" + sep)
+    print(f"  Current P&L: {sign}${pnl:.2f} ({r:+.2f}R)")
+    response = timed_input(
+        f"  Close {ticker} position? (y/n, 30s timeout): ",
+        timeout=30, default="n"
+    )
+
+    if response != "y":
+        print(f"  Keeping {ticker} open — continuing to monitor")
+        print(sep + "\n")
+        return False
+
+    # Ask for exit fill price
+    fill_str = timed_input(
+        f"  What did you close at? (suggested ${current_price:.2f}, press enter to use): ",
+        timeout=30, default=str(round(current_price, 2))
+    )
+
+    try:
+        exit_price = float(fill_str) if fill_str else current_price
+    except ValueError:
+        exit_price = current_price
+        print(f"  Could not parse price — using ${current_price:.2f}")
+
+    result = tracker.close_position(position_id, exit_price, reason)
+    realized_pnl = result.get("realized_pnl", 0)
+    realized_r   = result.get("realized_r", 0)
+    sign = "+" if realized_pnl >= 0 else ""
+
+    print(f"  ✓ {ticker} closed @ ${exit_price} — "
+          f"P&L: {sign}${realized_pnl:.2f} ({realized_r:+.2f}R)")
+    print(sep + "\n")
+    return True
+
+
+# =============================================================================
 #  CORE LOOP FUNCTIONS
 # =============================================================================
 
@@ -331,15 +485,22 @@ def evaluate_open_positions(
                     force=True
                 )
 
-            # ── Print copy-paste close command for hard exits too
-            close_cmd = build_close_command(position_id, ticker)
+            # ── Hard exit: ask user to confirm they closed it and get fill price
+            # This is a hard rule (stop/target/DTE) so we strongly urge closing
+            # but still ask for the actual fill price for accurate record keeping.
             sep = "=" * 64
-            print("\n" + sep)
-            print("  !! CLOSE THIS POSITION IN THINKORSWIM NOW !!")
-            print("  OPEN TERMINAL 2 (Cmd+T), then paste this command:")
+            print(f"\n{sep}")
+            print(f"  !! HARD RULE TRIGGERED — CLOSE {ticker} IN THINKORSWIM NOW !!")
+            print(f"  Reason: {hard_reason}")
             print(sep)
-            print(close_cmd)
-            print("  (Replace FILL_PRICE with your actual exit fill price)")
+            fill_str = timed_input(
+                f"  What did you close {ticker} at? (suggested ${current_option_price:.2f}, press enter): ",
+                timeout=30, default=str(round(current_option_price, 2))
+            )
+            try:
+                confirmed_exit_price = float(fill_str) if fill_str else current_option_price
+            except ValueError:
+                confirmed_exit_price = current_option_price
             print(sep + "\n")
 
             # Update agent
@@ -410,15 +571,35 @@ def evaluate_open_positions(
                 exit_price=current_option_price
             )
 
-            # ── Print copy-paste close command
-            close_cmd = build_close_command(position_id, ticker)
-            sep = "=" * 64
-            print("\n" + sep)
-            print("  OPEN TERMINAL 2 (Cmd+T), then paste this command:")
-            print(sep)
-            print(close_cmd)
-            print("  (Replace FILL_PRICE with your actual exit fill price)")
-            print(sep + "\n")
+            # ── Ask user if they want to close this position (30s timeout → n)
+            closed = ask_close_position(
+                position_id=position_id,
+                position=position,
+                tracker=tracker,
+                current_price=current_option_price,
+                confidence=confidence,
+                reason="AGENT_EXIT"
+            )
+
+            # If user closed it, update agent and skip rest of loop for this position
+            if closed:
+                result = {
+                    "realized_pnl": tracker.unrealized_pnl(position_id, current_option_price)
+                    if position_id in tracker.open_positions else
+                    snapshot.get("unrealized_pnl", 0),
+                    "realized_r": snapshot.get("unrealized_r", 0)
+                }
+                entry_snap = json.loads(position.get("raw_scanner_data") or "{}")
+                agent.update_on_close(
+                    position=position,
+                    exit_reason="AGENT_EXIT",
+                    realized_r=snapshot.get("unrealized_r", 0),
+                    entry_market_snapshot=build_market_snapshot(entry_snap),
+                    exit_market_snapshot=snapshot,
+                    ticks_held=_ticks_held(position),
+                    rolling_drawdown=_rolling_drawdown()
+                )
+                action_state.update(str(position_id), "EXIT", confidence)
 
             db.insert_recommendation({
                 "timestamp":      snapshot["timestamp"],
@@ -507,15 +688,8 @@ def evaluate_new_candidates(
                 strategy=trade.get("strategy")
             )
 
-            # ── Print copy-paste tracker command so user never has to remember it
-            track_cmd = build_track_command(scanner_result)
-            sep = "=" * 64
-            print("\n" + sep)
-            print("  OPEN TERMINAL 2 (Cmd+T), then paste this command:")
-            print(sep)
-            print(track_cmd)
-            print("  (Replace FILL_PRICE with your actual fill e.g. 2.80)")
-            print(sep + "\n")
+            # ── Ask user if they want to track this position (30s timeout → n)
+            position_id = ask_track_position(scanner_result, tracker, confidence)
 
             rec_id = db.insert_recommendation({
                 "timestamp":       snapshot["timestamp"],
@@ -529,7 +703,7 @@ def evaluate_new_candidates(
                 "reasons":         json.dumps(reasons[:5]),
                 "market_snapshot": json.dumps(snapshot, default=str),
                 "notified_user":   1,
-                "position_id":     None
+                "position_id":     position_id
             })
 
             db.log_journal_event(
@@ -545,7 +719,8 @@ def evaluate_new_candidates(
                     "target":     pricing.get("target"),
                     "strategy":   trade.get("strategy"),
                     "confluence": scanner_result.get("confluence", {}).get("score"),
-                    "rec_id":     rec_id
+                    "rec_id":     rec_id,
+                    "tracked":    position_id is not None
                 }
             )
 
