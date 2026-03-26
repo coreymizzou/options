@@ -107,6 +107,19 @@ class PositionTracker:
         Check if a position must be force-closed by a hard rule.
         Returns (must_exit: bool, reason: str)
         """
+        # ── Grace period: never fire hard rules within 2 minutes of opening
+        # This prevents a bad current_price reading on the first tick from
+        # immediately triggering a stop right after the user says y to track.
+        entry_time = position.get("entry_time", "")
+        if entry_time:
+            try:
+                entry_dt   = datetime.fromisoformat(entry_time)
+                secs_held  = (datetime.now() - entry_dt).total_seconds()
+                if secs_held < 120:
+                    return False, ""   # too early — give it 2 minutes
+            except Exception:
+                pass
+
         entry_price = position["entry_price"]
         entry_cost  = position["entry_cost"]
         contracts   = position.get("contracts", 1)

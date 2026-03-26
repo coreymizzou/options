@@ -17,6 +17,32 @@ from typing import Optional, List, Dict, Any
 
 from config import DB_PATH, LOG_DIR
 
+# ─── Numpy-safe JSON encoder ─────────────────────────────────────────────────
+# numpy float32/int64 values are not natively JSON serializable.
+# This encoder converts them to standard Python types transparently.
+class _SafeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        try:
+            import numpy as np
+            if isinstance(obj, (np.integer,)):
+                return int(obj)
+            if isinstance(obj, (np.floating,)):
+                return float(obj)
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+        except ImportError:
+            pass
+        # Fallback: convert anything else to string
+        # handles datetime, Path, and other non-serializable types
+        try:
+            return str(obj)
+        except Exception:
+            return super().default(obj)
+
+def _dumps(obj) -> str:
+    """json.dumps with numpy type support."""
+    return json.dumps(obj, cls=_SafeEncoder)
+
 # ─── Logging setup ───────────────────────────────────────────────────────────
 Path(LOG_DIR).mkdir(exist_ok=True)
 logger = logging.getLogger(__name__)
@@ -351,7 +377,7 @@ def log_journal_event(event_type: str, ticker: str = None, position_id: int = No
             action,
             confidence,
             reason_summary,
-            json.dumps(details or {})
+            _dumps(details or {})
         ))
 
 
@@ -390,7 +416,7 @@ def save_agent_weights(label: str, weights: list, bias: float,
         conn.execute(sql_ins, (
             datetime.now().isoformat(),
             label,
-            json.dumps(weights),
+            _dumps(weights),
             bias,
             n_updates,
             mean_reward,
@@ -464,7 +490,7 @@ def set_state(key: str, value: Any):
             updated_at = excluded.updated_at
     """
     with get_connection() as conn:
-        conn.execute(sql, (key, json.dumps(value), datetime.now().isoformat()))
+        conn.execute(sql, (key, _dumps(value), datetime.now().isoformat()))
 
 
 def get_state(key: str, default=None) -> Any:

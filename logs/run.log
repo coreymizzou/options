@@ -12,3 +12,261 @@
 2026-03-25 22:25:46,841 [ERROR] run: Loop error on tick 1: Object of type float32 is not JSON serializable
 2026-03-25 22:25:46,844 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
 2026-03-25 22:25:46,844 [INFO] run: Loop stopped after 1 ticks
+2026-03-25 23:01:54,377 [INFO] database: Database initialized at ./scanner_data.db
+2026-03-25 23:01:54,380 [INFO] position_tracker: Restored 1 open positions from DB
+2026-03-25 23:01:54,380 [INFO] position_tracker:   #1 AMZN BEAR_PUT_SPREAD entry=$2.78 entered=2026-03-25T22:42
+2026-03-25 23:01:54,380 [INFO] position_tracker: PositionTracker initialized — 1 open positions restored
+2026-03-25 23:01:54,382 [INFO] rl_agent: Agent weights loaded: enter_weights (0 updates, mean_R=0.000)
+2026-03-25 23:01:54,384 [INFO] rl_agent: Agent weights loaded: exit_weights (0 updates, mean_R=0.000)
+2026-03-25 23:01:54,384 [INFO] rl_agent: DecisionAgent initialized — enter_model: 0 updates, exit_model: 0 updates
+2026-03-25 23:01:54,422 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
+2026-03-25 23:01:54,429 [INFO] run: Starting 60-second loop (PAPER mode)
+2026-03-25 23:01:55,994 [INFO] run: Running options scanner on 15 tickers...
+2026-03-25 23:02:19,077 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-25 23:02:20,303 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-25 23:03:43,102 [INFO] run: Scanner complete: 15 scanned, 12 meet threshold
+2026-03-25 23:03:43,102 [INFO] run: Tick 1: Scanner refreshed — regime=TRENDING_DOWN VIX=25.3 12 valid candidates
+2026-03-25 23:03:43,120 [INFO] position_tracker: Position closed: #1 AMZN TARGET_HIT: up 146% (+$405.00) P&L=$+405.00 (+1.46R)
+2026-03-25 23:03:43,142 [INFO] notifier: Alert sent: EXIT AMZN conf=1.00 force=True
+2026-03-25 23:03:43,146 [INFO] rl_agent: Agent updated: AMZN realized_r=1.457 reward=1.457 enter_updates=1 exit_updates=1
+2026-03-25 23:03:43,165 [ERROR] run: Loop error on tick 1: Object of type float32 is not JSON serializable
+2026-03-25 23:03:43,210 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
+2026-03-25 23:03:43,211 [INFO] run: Loop stopped after 1 ticks
+2026-03-26 09:01:24,258 [INFO] database: Database initialized at ./scanner_data.db
+2026-03-26 09:01:24,261 [INFO] position_tracker: PositionTracker initialized — 0 open positions restored
+2026-03-26 09:01:24,263 [INFO] rl_agent: Agent weights loaded: enter_weights (1 updates, mean_R=1.457)
+2026-03-26 09:01:24,265 [INFO] rl_agent: Agent weights loaded: exit_weights (1 updates, mean_R=1.457)
+2026-03-26 09:01:24,265 [INFO] rl_agent: DecisionAgent initialized — enter_model: 1 updates, exit_model: 1 updates
+2026-03-26 09:01:24,295 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
+2026-03-26 09:01:24,300 [INFO] run: Starting 60-second loop (PAPER mode)
+2026-03-26 09:01:25,719 [INFO] run: Running options scanner on 15 tickers...
+2026-03-26 09:03:06,779 [INFO] run: Scanner complete: 15 scanned, 4 meet threshold
+2026-03-26 09:03:06,779 [INFO] run: Tick 1: Scanner refreshed — regime=TRENDING_DOWN VIX=26.7 4 valid candidates
+2026-03-26 09:03:06,783 [ERROR] run: Loop error on tick 1: Object of type float32 is not JSON serializable
+2026-03-26 09:03:06,786 [ERROR] run: Loop error on tick 2: Object of type float32 is not JSON serializable
+2026-03-26 09:04:06,792 [ERROR] run: Loop error on tick 3: Object of type float32 is not JSON serializable
+2026-03-26 09:05:06,807 [ERROR] run: Loop error on tick 4: Object of type float32 is not JSON serializable
+2026-03-26 09:06:06,810 [ERROR] run: Loop error on tick 5: Object of type float32 is not JSON serializable
+2026-03-26 09:07:07,606 [INFO] run: Running options scanner on 15 tickers...
+2026-03-26 09:09:03,317 [INFO] run: Scanner complete: 15 scanned, 1 meet threshold
+2026-03-26 09:09:03,317 [INFO] run: Tick 6: Scanner refreshed — regime=TRENDING_DOWN VIX=26.4 1 valid candidates
+2026-03-26 09:09:03,322 [ERROR] run: Loop error on tick 6: Object of type float32 is not JSON serializable
+2026-03-26 09:09:03,326 [ERROR] run: Loop error on tick 7: Object of type float32 is not JSON serializable
+2026-03-26 09:10:03,335 [ERROR] run: Loop error on tick 8: Object of type float32 is not JSON serializable
+2026-03-26 09:11:03,338 [ERROR] run: Loop error on tick 9: Object of type float32 is not JSON serializable
+2026-03-26 09:12:03,348 [ERROR] run: Loop error on tick 10: Object of type float32 is not JSON serializable
+2026-03-26 09:13:04,235 [INFO] run: Running options scanner on 15 tickers...
+2026-03-26 09:14:57,242 [INFO] run: Scanner complete: 15 scanned, 4 meet threshold
+2026-03-26 09:14:57,242 [INFO] run: Tick 11: Scanner refreshed — regime=TRENDING_DOWN VIX=26.6 4 valid candidates
+2026-03-26 09:14:57,245 [ERROR] run: Loop error on tick 11: Object of type float32 is not JSON serializable
+2026-03-26 09:14:57,248 [ERROR] run: Loop error on tick 12: Object of type float32 is not JSON serializable
+2026-03-26 09:15:57,262 [ERROR] run: Loop error on tick 13: Object of type float32 is not JSON serializable
+2026-03-26 09:16:41,318 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:16:41,519 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:16:41,695 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:16:41,895 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:16:42,098 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:16:42,439 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:16:42,796 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:16:43,152 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:16:43,349 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:16:48,205 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:16:48,488 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:16:48,636 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:16:48,851 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:16:49,086 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:16:49,455 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:16:49,788 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:16:50,382 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:16:50,587 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:16:57,306 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
+2026-03-26 09:16:57,307 [INFO] run: Loop stopped after 13 ticks
+2026-03-26 09:17:52,474 [INFO] database: Database initialized at ./scanner_data.db
+2026-03-26 09:17:52,477 [INFO] position_tracker: PositionTracker initialized — 0 open positions restored
+2026-03-26 09:17:52,478 [INFO] rl_agent: Agent weights loaded: enter_weights (1 updates, mean_R=1.457)
+2026-03-26 09:17:52,480 [INFO] rl_agent: Agent weights loaded: exit_weights (1 updates, mean_R=1.457)
+2026-03-26 09:17:52,481 [INFO] rl_agent: DecisionAgent initialized — enter_model: 1 updates, exit_model: 1 updates
+2026-03-26 09:22:32,880 [INFO] database: Database initialized at ./scanner_data.db
+2026-03-26 09:22:32,883 [INFO] position_tracker: PositionTracker initialized — 0 open positions restored
+2026-03-26 09:22:32,884 [INFO] rl_agent: Agent weights loaded: enter_weights (1 updates, mean_R=1.457)
+2026-03-26 09:22:32,886 [INFO] rl_agent: Agent weights loaded: exit_weights (1 updates, mean_R=1.457)
+2026-03-26 09:22:32,886 [INFO] rl_agent: DecisionAgent initialized — enter_model: 1 updates, exit_model: 1 updates
+2026-03-26 09:22:32,916 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
+2026-03-26 09:22:32,922 [INFO] run: Starting 60-second loop (PAPER mode)
+2026-03-26 09:22:34,366 [INFO] run: Running options scanner on 15 tickers...
+2026-03-26 09:24:27,632 [INFO] run: Scanner complete: 15 scanned, 4 meet threshold
+2026-03-26 09:24:27,632 [INFO] run: Tick 1: Scanner refreshed — regime=TRENDING_DOWN VIX=26.4 4 valid candidates
+2026-03-26 09:24:27,664 [INFO] notifier: Alert sent: ENTER MSFT conf=0.85 force=False
+2026-03-26 09:24:42,133 [INFO] position_tracker: Position opened: #2 MSFT BEAR_PUT_SPREAD entry=$2.75 stop=$1.36 target=$6.37
+2026-03-26 09:24:42,142 [ERROR] run: Loop error on tick 1: _dumps() got an unexpected keyword argument 'default'
+2026-03-26 09:24:42,162 [INFO] position_tracker: Position closed: #2 MSFT TARGET_HIT: up 192% (+$528.00) P&L=$+528.00 (+1.92R)
+2026-03-26 09:24:42,183 [INFO] notifier: Alert sent: EXIT MSFT conf=1.00 force=True
+2026-03-26 09:25:05,072 [INFO] rl_agent: Agent updated: MSFT realized_r=1.920 reward=1.920 enter_updates=2 exit_updates=2
+2026-03-26 09:25:05,118 [INFO] notifier: Alert sent: ENTER CRWD conf=0.85 force=False
+2026-03-26 09:25:11,570 [INFO] position_tracker: Position opened: #3 CRWD BEAR_PUT_SPREAD entry=$8.92 stop=$4.45 target=$16.95
+2026-03-26 09:25:11,579 [ERROR] run: Loop error on tick 2: _dumps() got an unexpected keyword argument 'default'
+2026-03-26 09:25:42,171 [INFO] position_tracker: Position closed: #3 CRWD TARGET_HIT: up 106% (+$948.00) P&L=$+948.00 (+1.06R)
+2026-03-26 09:25:42,197 [INFO] notifier: Alert sent: EXIT CRWD conf=1.00 force=True
+2026-03-26 09:25:55,152 [INFO] rl_agent: Agent updated: CRWD realized_r=1.063 reward=1.063 enter_updates=3 exit_updates=3
+2026-03-26 09:25:55,209 [INFO] notifier: Alert sent: ENTER TSLA conf=0.70 force=False
+2026-03-26 09:26:25,215 [ERROR] run: Loop error on tick 3: _dumps() got an unexpected keyword argument 'default'
+2026-03-26 09:26:42,191 [INFO] notifier: Alert sent: ENTER TSLA conf=0.70 force=False
+2026-03-26 09:27:12,200 [ERROR] run: Loop error on tick 4: _dumps() got an unexpected keyword argument 'default'
+2026-03-26 09:27:43,016 [INFO] run: Running options scanner on 15 tickers...
+2026-03-26 09:29:37,476 [INFO] run: Scanner complete: 15 scanned, 7 meet threshold
+2026-03-26 09:29:37,476 [INFO] run: Tick 5: Scanner refreshed — regime=TRENDING_DOWN VIX=26.5 7 valid candidates
+2026-03-26 09:29:37,510 [INFO] notifier: Alert sent: ENTER META conf=0.85 force=False
+2026-03-26 09:30:07,520 [ERROR] run: Loop error on tick 5: _dumps() got an unexpected keyword argument 'default'
+2026-03-26 09:30:07,554 [INFO] notifier: Alert sent: ENTER META conf=0.85 force=False
+2026-03-26 09:30:37,559 [ERROR] run: Loop error on tick 6: _dumps() got an unexpected keyword argument 'default'
+2026-03-26 09:31:07,565 [INFO] notifier: Alert sent: ENTER META conf=0.85 force=False
+2026-03-26 09:31:37,579 [ERROR] run: Loop error on tick 7: _dumps() got an unexpected keyword argument 'default'
+2026-03-26 09:32:07,575 [INFO] notifier: Alert sent: ENTER META conf=0.85 force=False
+2026-03-26 09:32:37,591 [ERROR] run: Loop error on tick 8: _dumps() got an unexpected keyword argument 'default'
+2026-03-26 09:33:08,312 [INFO] run: Running options scanner on 15 tickers...
+2026-03-26 09:34:57,140 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:34:57,877 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:34:58,167 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:34:58,677 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:35:03,649 [INFO] run: Scanner complete: 15 scanned, 6 meet threshold
+2026-03-26 09:35:03,649 [INFO] run: Tick 9: Scanner refreshed — regime=TRENDING_DOWN VIX=26.3 6 valid candidates
+2026-03-26 09:35:03,687 [INFO] notifier: Alert sent: ENTER META conf=0.85 force=False
+2026-03-26 09:35:33,690 [ERROR] run: Loop error on tick 9: _dumps() got an unexpected keyword argument 'default'
+2026-03-26 09:35:33,733 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
+2026-03-26 09:35:33,733 [INFO] run: Loop stopped after 9 ticks
+2026-03-26 09:36:25,082 [INFO] database: Database initialized at ./scanner_data.db
+2026-03-26 09:36:25,085 [INFO] position_tracker: PositionTracker initialized — 0 open positions restored
+2026-03-26 09:36:25,086 [INFO] rl_agent: Agent weights loaded: enter_weights (3 updates, mean_R=1.491)
+2026-03-26 09:36:25,088 [INFO] rl_agent: Agent weights loaded: exit_weights (3 updates, mean_R=1.491)
+2026-03-26 09:36:25,088 [INFO] rl_agent: DecisionAgent initialized — enter_model: 3 updates, exit_model: 3 updates
+2026-03-26 09:36:25,117 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
+2026-03-26 09:36:25,122 [INFO] run: Starting 60-second loop (PAPER mode)
+2026-03-26 09:36:26,523 [INFO] run: Running options scanner on 15 tickers...
+2026-03-26 09:38:19,027 [INFO] run: Scanner complete: 15 scanned, 8 meet threshold
+2026-03-26 09:38:19,027 [INFO] run: Tick 1: Scanner refreshed — regime=TRENDING_DOWN VIX=26.3 8 valid candidates
+2026-03-26 09:38:19,058 [INFO] notifier: Alert sent: ENTER NVDA conf=0.85 force=False
+2026-03-26 09:38:50,375 [INFO] position_tracker: Position opened: #4 NVDA BEAR_PUT_SPREAD entry=$1.49 stop=$0.73 target=$3.24
+2026-03-26 09:38:50,390 [INFO] run:   NVDA now tracked — action state set to HOLD
+2026-03-26 09:38:50,431 [INFO] run:   Candidate NVDA: ENTER conf=0.85 (confluence 13pts)
+2026-03-26 09:38:50,465 [INFO] notifier: Alert sent: ENTER META conf=0.85 force=False
+2026-03-26 09:38:55,967 [INFO] position_tracker: Position opened: #5 META BEAR_PUT_SPREAD entry=$6.3 stop=$3.14 target=$15.64
+2026-03-26 09:38:55,982 [INFO] run:   META now tracked — action state set to HOLD
+2026-03-26 09:38:56,024 [INFO] run:   Candidate META: ENTER conf=0.85 (confluence 13pts)
+2026-03-26 09:38:56,053 [INFO] notifier: Alert sent: ENTER TSLA conf=0.85 force=False
+2026-03-26 09:38:59,793 [INFO] position_tracker: Position opened: #6 TSLA BEAR_PUT_SPREAD entry=$7.22 stop=$3.6 target=$16.1
+2026-03-26 09:38:59,809 [INFO] run:   TSLA now tracked — action state set to HOLD
+2026-03-26 09:38:59,826 [INFO] run:   Candidate TSLA: ENTER conf=0.85 (confluence 13pts)
+2026-03-26 09:38:59,828 [INFO] run: Max positions (3) reached — skipping MU
+2026-03-26 09:38:59,839 [INFO] run:   NVDA #4: HOLD conf=0.40 pnl=$+993.00
+2026-03-26 09:38:59,851 [INFO] run:   META #5: HOLD conf=0.40 pnl=$+895.00
+2026-03-26 09:38:59,864 [INFO] run:   TSLA #6: HOLD conf=0.40 pnl=$+798.00
+2026-03-26 09:38:59,886 [INFO] run: Max positions (3) reached — skipping MU
+2026-03-26 09:39:59,883 [INFO] run: Max positions (3) reached — skipping MU
+2026-03-26 09:40:59,860 [INFO] position_tracker: Position closed: #4 NVDA TARGET_HIT: up 222% (+$993.00) P&L=$+993.00 (+2.22R)
+2026-03-26 09:40:59,882 [INFO] notifier: Alert sent: EXIT NVDA conf=1.00 force=True
+2026-03-26 09:41:29,891 [INFO] rl_agent: Agent updated: NVDA realized_r=2.221 reward=1.921 enter_updates=4 exit_updates=4
+2026-03-26 09:41:29,924 [INFO] position_tracker: Position closed: #5 META TARGET_HIT: up 142% (+$895.00) P&L=$+895.00 (+1.42R)
+2026-03-26 09:41:29,949 [INFO] notifier: Alert sent: EXIT META conf=1.00 force=True
+2026-03-26 09:41:59,960 [INFO] rl_agent: Agent updated: META realized_r=1.421 reward=1.121 enter_updates=5 exit_updates=5
+2026-03-26 09:41:59,993 [INFO] position_tracker: Position closed: #6 TSLA TARGET_HIT: up 111% (+$798.00) P&L=$+798.00 (+1.11R)
+2026-03-26 09:42:00,017 [INFO] notifier: Alert sent: EXIT TSLA conf=1.00 force=True
+2026-03-26 09:42:30,032 [INFO] rl_agent: Agent updated: TSLA realized_r=1.105 reward=0.805 enter_updates=6 exit_updates=6
+2026-03-26 09:42:30,085 [INFO] notifier: Alert sent: ENTER MU conf=0.85 force=False
+2026-03-26 09:43:00,118 [INFO] run:   Candidate MU: ENTER conf=0.85 (confluence 13pts)
+2026-03-26 09:43:00,932 [INFO] run: Running options scanner on 15 tickers...
+2026-03-26 09:44:53,713 [INFO] run: Scanner complete: 15 scanned, 4 meet threshold
+2026-03-26 09:44:53,713 [INFO] run: Tick 5: Scanner refreshed — regime=TRENDING_DOWN VIX=26.3 4 valid candidates
+2026-03-26 09:44:53,745 [INFO] notifier: Alert sent: ENTER PLTR conf=0.85 force=False
+2026-03-26 09:45:23,769 [INFO] run:   Candidate PLTR: ENTER conf=0.85 (confluence 11pts)
+2026-03-26 09:45:23,803 [INFO] notifier: Alert sent: ENTER AMD conf=0.85 force=False
+2026-03-26 09:45:53,824 [INFO] run:   Candidate AMD: ENTER conf=0.85 (confluence 10pts)
+2026-03-26 09:48:30,387 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:48:30,663 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:48:30,850 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:48:31,066 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 09:48:53,892 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
+2026-03-26 09:48:53,892 [INFO] run: Loop stopped after 8 ticks
+2026-03-26 09:50:39,225 [INFO] database: Database initialized at ./scanner_data.db
+2026-03-26 09:50:39,230 [INFO] position_tracker: PositionTracker initialized — 0 open positions restored
+2026-03-26 09:50:39,233 [INFO] rl_agent: DecisionAgent initialized — enter_model: 0 updates, exit_model: 0 updates
+2026-03-26 09:50:39,262 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
+2026-03-26 09:50:39,267 [INFO] run: Starting 60-second loop (PAPER mode)
+2026-03-26 09:50:40,563 [INFO] run: Running options scanner on 15 tickers...
+2026-03-26 09:52:32,106 [INFO] run: Scanner complete: 15 scanned, 6 meet threshold
+2026-03-26 09:52:32,106 [INFO] run: Tick 1: Scanner refreshed — regime=TRENDING_DOWN VIX=26.3 6 valid candidates
+2026-03-26 09:52:32,136 [INFO] notifier: Alert sent: ENTER MSFT conf=0.85 force=False
+2026-03-26 09:53:02,183 [INFO] run:   Candidate MSFT: ENTER conf=0.85 (confluence 13pts)
+2026-03-26 09:53:02,213 [INFO] notifier: Alert sent: ENTER GOOGL conf=0.85 force=False
+2026-03-26 09:53:32,238 [INFO] run:   Candidate GOOGL: ENTER conf=0.85 (confluence 13pts)
+2026-03-26 09:53:32,267 [INFO] notifier: Alert sent: ENTER META conf=0.85 force=False
+2026-03-26 09:54:02,289 [INFO] run:   Candidate META: ENTER conf=0.85 (confluence 13pts)
+2026-03-26 09:54:02,321 [INFO] notifier: Alert sent: ENTER COIN conf=0.85 force=False
+2026-03-26 09:54:32,343 [INFO] run:   Candidate COIN: ENTER conf=0.85 (confluence 13pts)
+2026-03-26 09:54:32,371 [INFO] notifier: Alert sent: ENTER AMZN conf=0.70 force=False
+2026-03-26 09:55:02,391 [INFO] run:   Candidate AMZN: ENTER conf=0.70 (confluence 10pts)
+2026-03-26 09:56:03,209 [INFO] run: Running options scanner on 15 tickers...
+2026-03-26 09:57:55,683 [INFO] run: Scanner complete: 15 scanned, 6 meet threshold
+2026-03-26 09:57:55,683 [INFO] run: Tick 3: Scanner refreshed — regime=TRENDING_DOWN VIX=26.5 6 valid candidates
+2026-03-26 09:57:55,714 [INFO] notifier: Alert sent: ENTER AAPL conf=0.70 force=False
+2026-03-26 09:58:25,748 [INFO] run:   Candidate AAPL: ENTER conf=0.70 (confluence 11pts)
+2026-03-26 09:58:25,779 [INFO] notifier: Alert sent: ENTER MSTR conf=0.85 force=False
+2026-03-26 09:58:55,809 [INFO] run:   Candidate MSTR: ENTER conf=0.85 (confluence 11pts)
+2026-03-26 10:01:56,797 [INFO] run: Running options scanner on 15 tickers...
+2026-03-26 10:03:50,893 [INFO] run: Scanner complete: 15 scanned, 4 meet threshold
+2026-03-26 10:03:50,893 [INFO] run: Tick 7: Scanner refreshed — regime=TRENDING_DOWN VIX=26.8 4 valid candidates
+2026-03-26 10:05:06,934 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 10:05:07,158 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 10:05:07,407 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 10:05:07,640 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 10:05:07,882 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 10:05:08,069 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 10:05:42,839 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 10:05:50,962 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
+2026-03-26 10:05:50,963 [INFO] run: Loop stopped after 9 ticks
+2026-03-26 10:06:46,686 [INFO] database: Database initialized at ./scanner_data.db
+2026-03-26 10:06:46,688 [INFO] position_tracker: PositionTracker initialized — 0 open positions restored
+2026-03-26 10:06:46,690 [INFO] rl_agent: Agent weights loaded: enter_weights (0 updates, mean_R=0.000)
+2026-03-26 10:06:46,691 [INFO] rl_agent: Agent weights loaded: exit_weights (0 updates, mean_R=0.000)
+2026-03-26 10:06:46,691 [INFO] rl_agent: DecisionAgent initialized — enter_model: 0 updates, exit_model: 0 updates
+2026-03-26 10:06:46,720 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
+2026-03-26 10:06:46,725 [INFO] run: Starting 60-second loop (PAPER mode)
+2026-03-26 10:06:48,158 [INFO] run: Running options scanner on 15 tickers...
+2026-03-26 10:08:44,040 [INFO] run: Scanner complete: 15 scanned, 6 meet threshold
+2026-03-26 10:08:44,040 [INFO] run: Tick 1: Scanner refreshed — regime=TRENDING_DOWN VIX=26.8 6 valid candidates
+2026-03-26 10:12:44,943 [INFO] run: Running options scanner on 15 tickers...
+2026-03-26 10:14:36,923 [INFO] run: Scanner complete: 15 scanned, 4 meet threshold
+2026-03-26 10:14:36,923 [INFO] run: Tick 6: Scanner refreshed — regime=TRENDING_DOWN VIX=26.9 4 valid candidates
+2026-03-26 10:18:38,001 [INFO] run: Running options scanner on 15 tickers...
+2026-03-26 10:20:31,988 [INFO] run: Scanner complete: 15 scanned, 3 meet threshold
+2026-03-26 10:20:31,988 [INFO] run: Tick 11: Scanner refreshed — regime=TRENDING_DOWN VIX=26.6 3 valid candidates
+2026-03-26 10:20:32,017 [INFO] notifier: Alert sent: ENTER MU conf=0.85 force=False
+2026-03-26 10:20:44,830 [INFO] position_tracker: Position opened: #1 MU BEAR_PUT_SPREAD entry=$10.92 stop=$5.45 target=$20.45
+2026-03-26 10:20:44,844 [INFO] run:   MU now tracked — action state set to HOLD
+2026-03-26 10:20:44,862 [INFO] run:   Candidate MU: ENTER conf=0.85 (confluence 13pts)
+2026-03-26 10:20:45,153 [INFO] run:   MU #1: HOLD conf=0.40 pnl=$+1173.00
+2026-03-26 10:22:45,181 [INFO] position_tracker: Position closed: #1 MU TARGET_HIT: up 107% (+$1173.00) P&L=$+1173.00 (+1.07R)
+2026-03-26 10:22:45,202 [INFO] notifier: Alert sent: EXIT MU conf=1.00 force=True
+2026-03-26 10:25:11,350 [INFO] rl_agent: Agent updated: MU realized_r=1.074 reward=1.074 enter_updates=1 exit_updates=1
+2026-03-26 10:25:12,197 [INFO] run: Running options scanner on 15 tickers...
+2026-03-26 10:27:04,116 [INFO] run: Scanner complete: 15 scanned, 6 meet threshold
+2026-03-26 10:27:04,116 [INFO] run: Tick 15: Scanner refreshed — regime=TRENDING_DOWN VIX=26.6 6 valid candidates
+2026-03-26 10:27:04,150 [INFO] notifier: Alert sent: ENTER TSLA conf=0.85 force=False
+2026-03-26 10:27:28,241 [INFO] position_tracker: Position opened: #2 TSLA LONG_STRADDLE entry=$39.73 stop=$19.48 target=$77.9
+2026-03-26 10:27:28,255 [INFO] run:   TSLA now tracked — action state set to HOLD
+2026-03-26 10:27:28,273 [INFO] run:   Candidate TSLA: ENTER conf=0.85 (confluence 12pts)
+2026-03-26 10:27:28,496 [INFO] run:   TSLA #2: HOLD conf=0.30 pnl=$-2716.00
+2026-03-26 10:29:28,541 [INFO] position_tracker: Position closed: #2 TSLA STOP_LOSS: down 68% ($2693.00) P&L=$-2693.00 (-0.68R)
+2026-03-26 10:29:28,564 [INFO] notifier: Alert sent: STOP_HIT TSLA conf=1.00 force=True
+2026-03-26 10:31:19,339 [INFO] rl_agent: Agent updated: TSLA realized_r=-0.678 reward=-1.378 enter_updates=2 exit_updates=2
+2026-03-26 10:31:20,186 [INFO] run: Running options scanner on 15 tickers...
+2026-03-26 10:33:11,505 [INFO] run: Scanner complete: 15 scanned, 3 meet threshold
+2026-03-26 10:33:11,505 [INFO] run: Tick 19: Scanner refreshed — regime=TRENDING_DOWN VIX=26.6 3 valid candidates
+2026-03-26 10:33:11,539 [INFO] notifier: Alert sent: ENTER AMD conf=0.85 force=False
+2026-03-26 10:36:19,005 [INFO] position_tracker: Entry blocked for AMD: Daily drawdown limit hit: $-1520.00 loss (limit: -$1500)
+2026-03-26 10:36:19,031 [INFO] run:   Candidate AMD: ENTER conf=0.85 (confluence 10pts)
+2026-03-26 10:37:19,784 [INFO] run: Running options scanner on 15 tickers...
+2026-03-26 10:39:02,037 [INFO] run: Scanner complete: 15 scanned, 6 meet threshold
+2026-03-26 10:39:02,037 [INFO] run: Tick 21: Scanner refreshed — regime=TRENDING_DOWN VIX=26.7 6 valid candidates
+2026-03-26 10:41:39,488 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-26 10:42:02,107 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
+2026-03-26 10:42:02,107 [INFO] run: Loop stopped after 24 ticks

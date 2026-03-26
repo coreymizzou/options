@@ -39,6 +39,7 @@ sys.path.insert(0, str(SCANNER_DIR))
 # ─── Local imports ────────────────────────────────────────────────────────────
 import config as cfg
 import database as db
+from database import _dumps as _json_dumps  # numpy-safe json encoder
 from rl_agent import DecisionAgent
 from position_tracker import PositionTracker
 from notifier import (
@@ -243,34 +244,46 @@ def build_close_command(position_id: int, ticker: str) -> str:
 def timed_input(prompt: str, timeout: int = 60, default: str = "n") -> str:
     """
     Ask the user a question with a timeout.
-    If no response within timeout seconds, returns default.
-    Works on both Mac/Linux and Windows.
+    Uses signal.alarm on Mac/Linux for reliable stdin reading.
+    Falls back to direct input() on Windows (no timeout on Windows).
     """
     import sys
-    import threading
+    import platform
 
-    result = [default]
-    answered = threading.Event()
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
 
-    def _ask():
+    # ── Mac/Linux: use signal.alarm for reliable timeout
+    if platform.system() != "Windows":
+        import signal
+
+        def _timeout_handler(signum, frame):
+            raise TimeoutError()
+
+        old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+        signal.alarm(timeout)
         try:
-            sys.stdout.write(prompt)
-            sys.stdout.flush()
-            val = sys.stdin.readline().strip().lower()
-            result[0] = val if val else default
+            val = input().strip().lower()
+            signal.alarm(0)  # cancel alarm
+            signal.signal(signal.SIGALRM, old_handler)
+            return val if val else default
+        except TimeoutError:
+            print(f"\n  (No response — defaulting to '{default}')")
+            signal.signal(signal.SIGALRM, old_handler)
+            return default
         except Exception:
-            result[0] = default
-        answered.set()
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
+            return default
 
-    t = threading.Thread(target=_ask, daemon=True)
-    t.start()
-    answered.wait(timeout=timeout)
-
-    if not answered.is_set():
-        print(f"\n  (No response — defaulting to '{default}')")
-        result[0] = default
-
-    return result[0]
+    # ── Windows: no signal.alarm available — just use input() with no timeout
+    # On Windows the loop will pause until user responds
+    else:
+        try:
+            val = input().strip().lower()
+            return val if val else default
+        except Exception:
+            return default
 
 
 def ask_track_position(scanner_result: Dict, tracker: PositionTracker,
@@ -391,6 +404,85 @@ def ask_close_position(position_id: int, position: Dict, tracker: PositionTracke
 
 
 # =============================================================================
+#  LIVE PRICE FETCHER FOR OPEN POSITIONS
+# =============================================================================
+
+def get_current_option_price(position: Dict) -> Optional[float]:
+    """
+    Fetch the actual current mid price for a specific open contract
+    using Tradier or yfinance.
+
+    This is critical — we must price the EXACT contract we hold,
+    not whatever the scanner happens to recommend on the same ticker.
+    Falls back to entry_price if live data is unavailable.
+    """
+    import os
+    import requests as req
+
+    ticker     = position.get("ticker", "")
+    strike     = position.get("strike")
+    expiration = position.get("expiration")
+    opt_type   = position.get("option_type", "call")
+    entry_price = position.get("entry_price", 0)
+
+    if not ticker or not strike or not expiration:
+        return entry_price
+
+    # ── Try Tradier first
+    api_key = os.environ.get("TRADIER_API_KEY", "")
+    if api_key:
+        try:
+            base = "https://api.tradier.com/v1"
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Accept": "application/json"
+            }
+            r = req.get(
+                f"{base}/markets/options/chains",
+                headers=headers,
+                params={
+                    "symbol":     ticker,
+                    "expiration": expiration,
+                    "greeks":     "false"
+                },
+                timeout=8
+            )
+            if r.status_code == 200:
+                options = r.json().get("options", {}).get("option", [])
+                for c in options:
+                    if (abs(float(c.get("strike", 0)) - float(strike)) < 0.01 and
+                            c.get("option_type", "").lower() == opt_type.lower()):
+                        bid = float(c.get("bid", 0) or 0)
+                        ask = float(c.get("ask", 0) or 0)
+                        if bid > 0 and ask > 0:
+                            return round((bid + ask) / 2, 2)
+                        last = float(c.get("last", 0) or 0)
+                        if last > 0:
+                            return round(last, 2)
+        except Exception as e:
+            logger.debug(f"Tradier price fetch failed for {ticker}: {e}")
+
+    # ── Fallback: yfinance option chain
+    try:
+        import yfinance as yf
+        stock = yf.Ticker(ticker)
+        chain = stock.option_chain(expiration)
+        df = chain.calls if opt_type.lower() == "call" else chain.puts
+        row = df[abs(df["strike"] - float(strike)) < 0.01]
+        if not row.empty:
+            bid = float(row.iloc[0]["bid"] or 0)
+            ask = float(row.iloc[0]["ask"] or 0)
+            if bid > 0 and ask > 0:
+                return round((bid + ask) / 2, 2)
+    except Exception as e:
+        logger.debug(f"yfinance price fetch failed for {ticker}: {e}")
+
+    # ── Last resort: return entry price so nothing breaks
+    logger.debug(f"Could not fetch live price for {ticker} {strike} {expiration} — using entry price")
+    return entry_price
+
+
+# =============================================================================
 #  CORE LOOP FUNCTIONS
 # =============================================================================
 
@@ -452,11 +544,10 @@ def evaluate_open_positions(
         })
         scanner_result["regime_data"] = regime
 
-        # Get current option price from scanner or last known
-        current_option_price = (
-            scanner_result.get("trade", {}).get("main_leg", {}).get("mid")
-            or position.get("entry_price")
-        )
+        # Get ACTUAL current price for this specific contract
+        # Do NOT use the scanner's main_leg.mid — that's a different strike/expiry
+        # Always fetch the live mid for the exact contract we hold
+        current_option_price = get_current_option_price(position)
 
         # Build snapshot
         snapshot = build_market_snapshot(scanner_result, position, current_option_price)
@@ -526,7 +617,27 @@ def evaluate_open_positions(
 
         # ── AGENT SCORING — can recommend EXIT or HOLD
         ticks = _ticks_held(position)
-        action, confidence, reasons = agent.score_exit(position, snapshot, ticks)
+
+        # Grace period: skip agent exit scoring for first 5 minutes after entry
+        # Without live Tradier prices the snapshot data is unreliable immediately
+        # after opening and the agent may recommend EXIT on bad data
+        entry_time = position.get("entry_time", "")
+        in_grace_period = False
+        if entry_time:
+            try:
+                entry_dt = datetime.fromisoformat(entry_time)
+                secs_held = (datetime.now() - entry_dt).total_seconds()
+                if secs_held < 300:  # 5 minute grace period
+                    in_grace_period = True
+            except Exception:
+                pass
+
+        if in_grace_period:
+            action     = "HOLD"
+            confidence = 0.0
+            reasons    = ["Grace period — position too new to evaluate (< 5 min)"]
+        else:
+            action, confidence, reasons = agent.score_exit(position, snapshot, ticks)
 
         # Persist tick snapshot to DB
         db.insert_tick_snapshot({
@@ -546,10 +657,10 @@ def evaluate_open_positions(
             "above_vwap":     1 if snapshot.get("above_vwap") else 0,
             "regime":         snapshot.get("regime"),
             "flow_score":     snapshot.get("flow_score"),
-            "feature_vector": json.dumps([]),   # populated in agent internally
+            "feature_vector": _json_dumps([]),   # populated in agent internally
             "agent_action":   action,
             "agent_confidence": confidence,
-            "agent_reasons":  json.dumps(reasons[:5])
+            "agent_reasons":  _json_dumps(reasons[:5])
         })
 
         # Alert if action changed and confidence is high enough
@@ -610,8 +721,8 @@ def evaluate_open_positions(
                 "expiration":     position.get("expiration"),
                 "action":         action,
                 "confidence":     confidence,
-                "reasons":        json.dumps(reasons[:5]),
-                "market_snapshot": json.dumps(snapshot, default=str),
+                "reasons":        _json_dumps(reasons[:5]),
+                "market_snapshot": _json_dumps(snapshot),
                 "notified_user":  1,
                 "position_id":    position_id
             })
@@ -647,6 +758,14 @@ def evaluate_new_candidates(
 
         # Skip if already in a position on this ticker
         if tracker.is_open(ticker):
+            # Also reset action state so ENTER doesn't re-fire when position closes
+            action_state.update(f"entry_{ticker}", "HOLD", 0.0)
+            continue
+
+        # Skip if last action for this ticker was already ENTER
+        # prevents re-alerting on same signal before user has had time to act
+        last_action = action_state.get_last(f"entry_{ticker}")
+        if last_action == "ENTER":
             continue
 
         # Skip if on cooldown
@@ -676,20 +795,56 @@ def evaluate_new_candidates(
         )
 
         if should_notify:
-            pricing = scanner_result.get("pricing", {})
-            trade   = scanner_result.get("trade", {})
+            pricing  = scanner_result.get("pricing", {})
+            trade    = scanner_result.get("trade", {})
+            main_leg = trade.get("main_leg", {})
+            short_leg = trade.get("short_leg", {})
+            strategy  = trade.get("strategy", "")
+            exp       = main_leg.get("exp") or trade.get("exp")
+            opt_label = main_leg.get("option_type", "put").upper()
+
+            # Build a clear trade description showing both legs for spreads
+            if "SPREAD" in strategy and short_leg:
+                long_strike  = main_leg.get("strike")
+                short_strike = short_leg.get("strike")
+                long_mid     = main_leg.get("mid", 0)
+                short_mid    = short_leg.get("mid", 0)
+                net_debit    = pricing.get("entry", round(long_mid - short_mid, 2))
+                spread_width = abs((long_strike or 0) - (short_strike or 0))
+                max_profit   = round(spread_width - net_debit, 2) if spread_width else "?"
+                be = (
+                    round(long_strike - net_debit, 2) if "BEAR" in strategy and long_strike
+                    else round(long_strike + net_debit, 2) if long_strike else "?"
+                )
+                trade_summary = (
+                    f"Buy ${long_strike} {opt_label} / Sell ${short_strike} {opt_label}  exp {exp}\n"
+                    f"         Net debit: ${net_debit}  |  Max profit: ${max_profit}  |  Break-even: ${be}"
+                )
+            else:
+                trade_summary = f"${main_leg.get('strike')} {opt_label}  exp {exp}"
+
             notify_entry(
                 ticker=ticker,
                 confidence=confidence,
                 reasons=reasons[:5],
+                strategy=strategy,
+                strike=main_leg.get("strike"),
+                expiration=exp,
                 entry=pricing.get("entry"),
                 stop=pricing.get("stop"),
                 target=pricing.get("target"),
-                strategy=trade.get("strategy")
+                contracts=pricing.get("contracts"),
+                trade_summary=trade_summary
             )
 
             # ── Ask user if they want to track this position (30s timeout → n)
             position_id = ask_track_position(scanner_result, tracker, confidence)
+
+            # If user tracked it, immediately flip action_state to HOLD
+            # so the ENTER alert doesn't fire again on the next tick
+            if position_id is not None:
+                action_state.update(key, "HOLD", confidence)
+                logger.info(f"  {ticker} now tracked — action state set to HOLD")
 
             rec_id = db.insert_recommendation({
                 "timestamp":       snapshot["timestamp"],
@@ -700,8 +855,8 @@ def evaluate_new_candidates(
                 "expiration":      trade.get("exp"),
                 "action":          action,
                 "confidence":      confidence,
-                "reasons":         json.dumps(reasons[:5]),
-                "market_snapshot": json.dumps(snapshot, default=str),
+                "reasons":         _json_dumps(reasons[:5]),
+                "market_snapshot": _json_dumps(snapshot),
                 "notified_user":   1,
                 "position_id":     position_id
             })

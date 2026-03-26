@@ -273,13 +273,20 @@ def send(alert: Alert):
 
 def notify_entry(ticker: str, confidence: float, reasons: list,
                  entry: float = None, stop: float = None,
-                 target: float = None, strategy: str = None):
+                 target: float = None, strategy: str = None,
+                 strike: float = None, expiration: str = None,
+                 contracts: int = None, trade_summary: str = None):
     """Convenience wrapper for ENTER alerts."""
     details = {}
-    if entry:   details["entry"]    = entry
-    if stop:    details["stop"]     = stop
-    if target:  details["target"]   = target
-    if strategy: details["strategy"] = strategy
+    if strategy:       details["strategy"]       = strategy
+    if trade_summary:  details["trade"]          = trade_summary
+    elif strike:       details["strike"]         = f"${strike}"
+    if expiration and not trade_summary:
+                       details["expiration"]     = expiration
+    if entry:          details["entry"]          = f"${entry}"
+    if stop:           details["stop"]           = f"${stop}"
+    if target:         details["target"]         = f"${target}"
+    if contracts:      details["contracts"]      = contracts
 
     alert = Alert(
         action="ENTER",
