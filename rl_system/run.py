@@ -240,7 +240,7 @@ def build_close_command(position_id: int, ticker: str) -> str:
 #  TIMED INPUT HELPER
 # =============================================================================
 
-def timed_input(prompt: str, timeout: int = 30, default: str = "n") -> str:
+def timed_input(prompt: str, timeout: int = 60, default: str = "n") -> str:
     """
     Ask the user a question with a timeout.
     If no response within timeout seconds, returns default.
