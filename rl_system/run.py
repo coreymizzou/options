@@ -407,17 +407,30 @@ def ask_close_position(position_id: int, position: Dict, tracker: PositionTracke
 #  LIVE PRICE FETCHER FOR OPEN POSITIONS
 # =============================================================================
 
+# Simple price cache — stores (price, timestamp) per position_id
+# Avoids hammering Tradier API every tick for every open position
+_price_cache: Dict[int, tuple] = {}
+_PRICE_CACHE_TTL = 55  # seconds — refresh just before each tick
+
 def get_current_option_price(position: Dict) -> Optional[float]:
     """
     Fetch the actual current mid price for a specific open contract
     using Tradier or yfinance.
 
-    This is critical — we must price the EXACT contract we hold,
-    not whatever the scanner happens to recommend on the same ticker.
+    Caches results for ~55 seconds to avoid rate limiting Tradier.
     Falls back to entry_price if live data is unavailable.
     """
     import os
     import requests as req
+
+    position_id = position.get("id")
+
+    # ── Check cache first
+    if position_id and position_id in _price_cache:
+        cached_price, cached_time = _price_cache[position_id]
+        age = (datetime.now() - cached_time).total_seconds()
+        if age < _PRICE_CACHE_TTL:
+            return cached_price
 
     ticker     = position.get("ticker", "")
     strike     = position.get("strike")
@@ -427,6 +440,11 @@ def get_current_option_price(position: Dict) -> Optional[float]:
 
     if not ticker or not strike or not expiration:
         return entry_price
+
+    def _cache_and_return(price: float) -> float:
+        if position_id:
+            _price_cache[position_id] = (price, datetime.now())
+        return price
 
     # ── Try Tradier first
     api_key = os.environ.get("TRADIER_API_KEY", "")
@@ -455,10 +473,10 @@ def get_current_option_price(position: Dict) -> Optional[float]:
                         bid = float(c.get("bid", 0) or 0)
                         ask = float(c.get("ask", 0) or 0)
                         if bid > 0 and ask > 0:
-                            return round((bid + ask) / 2, 2)
+                            return _cache_and_return(round((bid + ask) / 2, 2))
                         last = float(c.get("last", 0) or 0)
                         if last > 0:
-                            return round(last, 2)
+                            return _cache_and_return(round(last, 2))
         except Exception as e:
             logger.debug(f"Tradier price fetch failed for {ticker}: {e}")
 
@@ -473,7 +491,7 @@ def get_current_option_price(position: Dict) -> Optional[float]:
             bid = float(row.iloc[0]["bid"] or 0)
             ask = float(row.iloc[0]["ask"] or 0)
             if bid > 0 and ask > 0:
-                return round((bid + ask) / 2, 2)
+                return _cache_and_return(round((bid + ask) / 2, 2))
     except Exception as e:
         logger.debug(f"yfinance price fetch failed for {ticker}: {e}")
 
@@ -556,15 +574,11 @@ def evaluate_open_positions(
         must_exit, hard_reason = tracker.check_hard_exit_rules(position, current_option_price)
 
         if must_exit:
-            # Execute hard exit
-            result = tracker.close_position(position_id, current_option_price, hard_reason)
-            realized_r = result.get("realized_r", 0)
-
-            # Notify with high priority regardless of confidence threshold
+            # ── Notify user FIRST before closing
             if "STOP" in hard_reason.upper():
                 notify_stop_hit(
                     ticker=ticker,
-                    loss=result.get("realized_pnl", 0),
+                    loss=tracker.unrealized_pnl(position_id, current_option_price),
                     position_id=position_id
                 )
             else:
@@ -572,13 +586,11 @@ def evaluate_open_positions(
                     ticker=ticker,
                     confidence=1.0,
                     reasons=[f"Hard rule: {hard_reason}"],
-                    unrealized_pnl=result.get("realized_pnl"),
+                    unrealized_pnl=tracker.unrealized_pnl(position_id, current_option_price),
                     force=True
                 )
 
-            # ── Hard exit: ask user to confirm they closed it and get fill price
-            # This is a hard rule (stop/target/DTE) so we strongly urge closing
-            # but still ask for the actual fill price for accurate record keeping.
+            # ── Ask for actual fill price BEFORE closing position
             sep = "=" * 64
             print(f"\n{sep}")
             print(f"  !! HARD RULE TRIGGERED — CLOSE {ticker} IN THINKORSWIM NOW !!")
@@ -586,13 +598,17 @@ def evaluate_open_positions(
             print(sep)
             fill_str = timed_input(
                 f"  What did you close {ticker} at? (suggested ${current_option_price:.2f}, press enter): ",
-                timeout=30, default=str(round(current_option_price, 2))
+                timeout=60, default=str(round(current_option_price, 2))
             )
             try:
                 confirmed_exit_price = float(fill_str) if fill_str else current_option_price
             except ValueError:
                 confirmed_exit_price = current_option_price
             print(sep + "\n")
+
+            # ── Now close with the ACTUAL fill price
+            result = tracker.close_position(position_id, confirmed_exit_price, hard_reason)
+            realized_r = result.get("realized_r", 0)
 
             # Update agent
             entry_snapshot = json.loads(
@@ -758,8 +774,9 @@ def evaluate_new_candidates(
 
         # Skip if already in a position on this ticker
         if tracker.is_open(ticker):
-            # Also reset action state so ENTER doesn't re-fire when position closes
-            action_state.update(f"entry_{ticker}", "HOLD", 0.0)
+            # Don't reset action state here — let it expire naturally
+            # Resetting to HOLD/0.0 would prevent ENTER from firing
+            # again after the position closes
             continue
 
         # Skip if last action for this ticker was already ENTER
@@ -910,12 +927,17 @@ def _ticks_held(position: Dict) -> int:
 
 
 def _rolling_drawdown() -> float:
-    """Compute recent rolling drawdown from closed positions."""
+    """
+    Compute recent rolling drawdown from closed positions.
+    Returns a negative value when in drawdown, 0 when flat or profitable.
+    Only negative P&L contributes — winners don't offset drawdown here.
+    """
     recent = db.get_closed_positions(limit=10)
     if not recent:
         return 0.0
-    total_pnl = sum(p.get("realized_pnl", 0) for p in recent)
-    return total_pnl / cfg.ACCOUNT_SIZE
+    # Only count losses — drawdown is about downside, not net P&L
+    losses = sum(p.get("realized_pnl", 0) for p in recent if p.get("realized_pnl", 0) < 0)
+    return losses / cfg.ACCOUNT_SIZE
 
 
 def print_status(tracker: PositionTracker, agent: DecisionAgent):

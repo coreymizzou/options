@@ -348,7 +348,9 @@ class PositionTracker:
                     "strike":      strike,
                     "exp":         expiration,
                     "mid":         entry_price,
-                    "option_type": "call"
+                    # Infer option type from strategy name
+                    # PUT strategies need put pricing, CALL strategies need call pricing
+                    "option_type": "put" if any(x in strategy.upper() for x in ["PUT", "BEAR"]) else "call"
                 },
                 "exp": expiration
             },

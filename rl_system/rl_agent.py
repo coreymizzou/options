@@ -344,46 +344,62 @@ def rule_based_exit_score(position: Dict, market_snapshot: Dict,
     """
     Rule-based prior for EXIT decisions.
     Conservative — default to HOLD unless a clear reason to exit.
+
+    Design principles:
+    - No single factor should push score above threshold alone
+    - Need multiple confirming signals to recommend EXIT
+    - P&L-based signals only fire with meaningful moves (not noise)
+    - DTE only matters in final stretch (< 7 days = hard rule anyway)
+    - If no live price data available, score stays near 0
     """
     score   = 0.0
     reasons = []
 
     unrealized_r = market_snapshot.get("unrealized_r", 0) or 0
-    dte_rem      = market_snapshot.get("dte_remaining", 30) or 30
-    entry_dte    = position.get("entry_dte", 30) or 30
+    dte_rem      = market_snapshot.get("dte_remaining") or 30
+    entry_dte    = position.get("entry_dte") or 30
 
-    # Strong profit — lean toward taking it
-    if unrealized_r >= 0.80:
-        score += 0.40
-        reasons.append(f"Unrealized gain {unrealized_r:.2f}R — near target")
-    elif unrealized_r >= 0.50:
-        score += 0.20
-        reasons.append(f"Unrealized gain {unrealized_r:.2f}R — half target")
+    # ── Only score P&L signals if we have a meaningful price move
+    # If unrealized_r is exactly 0.0 it almost certainly means no live
+    # price data — don't treat flat as a signal either way
+    has_live_price = (
+        market_snapshot.get("option_mid") is not None and
+        market_snapshot.get("option_mid") != position.get("entry_price")
+    )
 
-    # Approaching stop
-    if unrealized_r <= -0.30:
-        score += 0.30
-        reasons.append(f"Position declining: {unrealized_r:.2f}R")
-    elif unrealized_r <= -0.20:
+    if has_live_price:
+        # Strong profit — lean toward taking it (but not aggressively)
+        if unrealized_r >= 0.90:
+            score += 0.35
+            reasons.append(f"Unrealized gain {unrealized_r:.2f}R — near target")
+        elif unrealized_r >= 0.60:
+            score += 0.20
+            reasons.append(f"Unrealized gain {unrealized_r:.2f}R")
+
+        # Significant loss building
+        if unrealized_r <= -0.35:
+            score += 0.25
+            reasons.append(f"Position declining: {unrealized_r:.2f}R")
+        elif unrealized_r <= -0.25:
+            score += 0.10
+            reasons.append(f"Loss building: {unrealized_r:.2f}R")
+    else:
+        reasons.append("No live price data — holding position")
+
+    # ── DTE urgency — only in final 7 days (before hard rule fires)
+    # Hard rule closes at CLOSE_BEFORE_DTE (7 days) so only score
+    # the 7-14 day window as a soft warning
+    if dte_rem is not None and dte_rem <= 14 and dte_rem > 7:
         score += 0.15
-        reasons.append(f"Loss building: {unrealized_r:.2f}R")
+        reasons.append(f"Only {dte_rem} DTE — approaching force-close threshold")
 
-    # DTE decay urgency
-    dte_frac = dte_rem / max(entry_dte, 1)
-    if dte_frac < 0.30:   # less than 30% of original DTE left
-        score += 0.25
-        reasons.append(f"Only {dte_rem} DTE remaining — theta accelerating")
-    elif dte_frac < 0.50:
-        score += 0.10
-        reasons.append(f"{dte_rem} DTE remaining — watch theta")
-
-    # Market reversal against position direction
+    # ── Market reversal against position — needs strong move to matter
     spy_chg   = market_snapshot.get("spy_change_pct", 0) or 0
     direction = position.get("direction", "NEUTRAL")
-    if (direction == "BULLISH" and spy_chg < -0.8) or \
-       (direction == "BEARISH" and spy_chg > 0.8):
+    if (direction == "BULLISH" and spy_chg < -1.5) or \
+       (direction == "BEARISH" and spy_chg > 1.5):
         score += 0.20
-        reasons.append(f"Market reversing against position (SPY {spy_chg:+.2f}%)")
+        reasons.append(f"Strong market reversal against position (SPY {spy_chg:+.2f}%)")
 
     return min(max(score, 0.0), 1.0), reasons
 
@@ -544,7 +560,8 @@ class DecisionAgent:
         if HOLD_IS_DEFAULT:
             action = "EXIT" if final_conf >= EXIT_CONFIDENCE_THRESHOLD else "HOLD"
         else:
-            action = "EXIT" if final_conf >= EXIT_CONFIDENCE_THRESHOLD else "HOLD"
+            # Non-default: exit unless confidence clearly favors holding
+            action = "HOLD" if final_conf < (1 - EXIT_CONFIDENCE_THRESHOLD) else "EXIT"
 
         self._log_decision(
             action=action, confidence=final_conf,
