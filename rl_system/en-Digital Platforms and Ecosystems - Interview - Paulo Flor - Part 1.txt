@@ -1,0 +1,184 @@
+It's a pleasure
+to have Paolo Floor with us in
+this interview. Paolo is a Senior
+Director for Finance Technology
+at TIAA. He has extensive
+experience in the field
+of technology, previously working
+as an Executive Director for
+JPMorgan Chase, responsible for
+portfolio management, VP for Special
+Projects at Bank of Tokyo Mitsubishi, and Manager at
+Deloitte for Enterprise
+Application Services. Paulo has a PhD in
+business with an information systems
+focus from the CATS School at the University
+of Pittsburgh, a master's in
+aerospace engineering from Georgia Tech,
+and a B.S. in mechanical engineering
+from the Universidade Federal de Minas
+Gerais in Brazil. Paulo, thank you
+so much for taking the time to speak
+with us today. Thank you for the
+opportunity of talking to you and
+your students. and it's always a
+pleasure. Thank you. So let me start
+straight to the point, you know, the
+main idea behind platforms and
+ecosystems, right? So in the last 10 years,
+we have seen a lot of discussion
+about platforms and ecosystems in the
+technology area. Can you share
+your perspectives about those
+concepts, right, of platforms
+and ecosystems? Certainly, right? I mean, when I think about
+platforms and ecosystems, right, I mean,
+I try to make a distinction between
+how do I differentiate between the two and how
+do I explain from my perspective what I
+mean by those, right? From my perspective,
+platforms are more foundational
+in nature, usually built
+for a purpose, right? They tend to
+serve as a framework under which you
+automate through technology certain
+business processes and you try to support
+certain business functions. So there
+is always that purpose of whatever your
+platform is there for, right? But it can be very
+broad in nature, right? I mean,
+so it could be a number of different
+tools that you have to build
+certain applications. It could be an operating
+system in which you're going to build
+your applications. It could be anything that
+you put together that will enable the
+creation, the deployment, the integration,
+and the management of applications
+and solutions supporting business
+processes, right? So all of these could
+be categorized as a platform for the way
+I look at it. And as I said, it may include
+an operating system, cloud computing offerings that you have, AWS, Google Cloud, Oracle Cloud. These are all
+platforms in which we operate. ERP systems,
+very, very specific to the area, for example,
+where I operate. As well as the
+development frameworks where we are building
+custom applications, etc. So all of
+this is how I take a look and
+characterize platforms. When you're talking
+about ecosystems, when you bring
+together all these technologies into
+an organization, each one of them,
+all these platforms that serve a
+specific purpose, when you try to bring
+that all together, and not only the
+technology aspect of it, But the people
+aspect of it, the people that are going
+to work with these technologies, the
+people that you have to interact through
+these technologies, right, as well as
+the vendors, in some cases, you are relying
+on vendors to provide with the technology
+capability or, you know, in some shape or
+form, right? So, when you take all of that
+together, you create an ecosystem or you
+have an ecosystem. You could say that you
+create an ecosystem, but eventually, how
+do you bring all this together? You are
+operating an ecosystem that has to be managed
+as well so that you can have optimal performance
+of the automation processes and the
+integration that you are trying to achieve
+within a certain organization. Right. So
+so, you know, of course, it includes all the
+hardware, the networks, the applications, the people, the data itself. Right. So all of this
+comes together as a as an ecosystem
+that that exists in an organization to support
+all the business processes that you are
+trying to automate. Right. So those are
+the ways in which I try to differentiate
+between these two. Certainly a discussion
+of ecosystems will focus or will eventually
+talk about the multiple platforms
+that are supporting these different business
+processes. Right. So that's basically
+how I look at this. you know i mean i hope
+that will differentiate a little bit and then
+we can we can explore in more detail as we
+go along yeah what wonderful overview
+paulo that i think that really kind of summarizes
+things puts things in perspective for us
+you know you've been working in at the intersection
+between technology and finance for many
+years and of course without divulging
+any trade secrets or proprietary information.
+Could you maybe share how platforms and
+ecosystems have impacted the work that you've
+done over those years? Absolutely, right. I
+mean, I think that, as I think I
+mentioned a little bit earlier, in my space,
+finance technology, a major paradigm shift
+occurred when the introduction of ERP
+systems, right? I mean, when we moved from
+mainframe systems to process accounting
+entries and things like that. And we introduced
+ERP systems as we were trying to solve
+for the Y2K problem. Those were major
+paradigm shifts in the finance
+technology space. And today, they're still
+the heart of any finance technology
+infrastructure. And around them, you
+start building a lot of systems that interact
+with the ERP and they start introducing a lot
+of different systems that were not core to
+the accounting processes and sub-ledger
+processes, but it started introducing things
+like a planning system, profitability
+management systems. In some cases, you
+started looking at leveraging from
+vendors to support you within the finance
+space. For example, a lot of tax related
+activities and processes are automated
+through third party vendors, you know,
+and that you have to bring them all together
+as part of your finance ecosystem.
+Let's put it this way. You know, you start to
+bring data capabilities, you know, I mean,
+finance, you produce a lot of financial
+data that eventually you want to use
+for reporting and analytics. So all this
+data that is being produced on all these
+applications have to come together in some
+sort of data store or data warehouse where
+you can build the reporting analytics
+capability. Those capabilities by themselves
+are other, you know, platforms that introduce
+so that you can provide the reporting
+and the analytics requirements, meet the
+requirements that the users have, right? Of
+course, all of that has moved, initially built
+within the boundaries of the organization, but
+with that event of cloud systems and clouds,
+we started shifting towards leveraging from
+cloud infrastructure to provide those
+capabilities and at the same time integrate
+all of that through different cloud offerings
+or SaaS applications. you started introducing to support all of that. So certainly, I mean,
+we do live today just within finance in a very rich ecosystem that needs to be properly
+managed and taken care of, right?
+At the same time that we interact
+with all the other ecosystems that exist, you know, finance
+is just a reflection of what's occurring
+in the transactional system that's
+facing end users or, you know, that
+front-end systems. So, you know, so all
+of that. And we also produce data that gets
+consumed by a number of different groups
+and different teams. Everybody's interested
+in knowing the finance numbers. So all of
+that comes together as an even broader
+ecosystem that we operate in, right? So, for
+sure, over the years, things have evolved
+and continue to evolve, you know, as we
+build this ecosystem.

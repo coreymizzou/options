@@ -1,0 +1,112 @@
+Hello, my name is Alex Lopez, and this is
+part of a set of videos about
+organization agility, platforms, and
+ecosystems. And in this
+particular video, we're going to
+be discussing ecosystems, right,
+beyond platforms, how to enable
+ecosystems, how to use platforms to
+support ecosystems. And the first
+thing to define is what is an ecosystem, and it's hard to define. But if you think
+about an ecosystem essentially is either
+as a plastic, that or a collection of
+platforms that now have a variety of users
+and many of those users are outside the
+organization, right? So those users are
+interacting with each other in many
+cases through a platform for the
+data and many or even processes that the
+platform enables. So one classic example
+of an ecosystem might be, for example, the
+App Store, right? So it's not only the
+platform in the App Store, it's really the
+participation of users of
+Apple or Google, in the case of
+the Play Store, or the participation
+of developers, right, of companies
+altogether using a single platform
+that enables them to transact. So that is
+that involvement of the multiple parties
+that really makes goals essentially from
+a regular platform, to perhaps a full
+-fledged ecosystem. And what we have
+seen is that organizations
+that have this really high focus
+on ecosystems are really able to
+monetize their efforts more, right?
+Because they provide different avenues
+and actually get more revenue from different
+participants and it can be, again,
+more collaborative or can create
+new products and services that
+now are serving, are providing support
+for that ecosystem. a different strategic
+approach. And that is something
+to really consider. An ecosystem that
+involves, for example, you know, is smart cities or smart transportation, that might have a
+variety of different participants,
+from technology companies, from
+governments, right? From IoT providers,
+from regulators, from insurance companies. So those are the
+things that you have to consider because it's
+part of life now, even for many organizations,
+to be embedded in multi-platforms, and
+these multiple platforms might be part of one
+or more ecosystems. And you have to
+think about what is your role
+is, right? Are you a sponsor of
+this platform? Are you a member
+of this platform? Or a consumer of data and processes from
+this platform? And you might
+have different roles as an organization, depending on which
+platform we're talking about, depending on
+which participants that platform is enabling
+in their ecosystem. Now, how organizations
+should prepare, right? It's really a very
+different approach, but it's not
+extraordinarily, you know, different, right? It's really about thinking, what's the business
+strategy and what are the
+control points that your organization
+should exert, ones that
+platform with that ecosystem, and you
+are either a sponsor or participant
+of that, right? And, of course,
+you have to develop the infrastructure,
+even as a consumer, how to absorb
+of data processes from that
+ecosystem, from the platform that's part
+of the ecosystem. Because of that, you
+also might have to think about how the
+customer management processes and the
+structures have to be rethought because
+again, you're not the only one, right?
+There might be some different rules and
+governance for that the platform in that
+overall ecosystem that you have
+to consider. Fundamentally, you
+have to think about cybersecurity
+legal partnerships, right? How are they
+going to affect their participation
+in that ecosystem? But you have to do
+that with an open mind. You have to
+really think about, you know, if we're
+designing that, if we're participating in
+that, you know, who are the many, many
+people that are going to be involved,
+and you have to be considering their
+perspectives as well. And, of course,
+thinking about new capabilities, how
+do they translate in terms of new
+value propositions as not only as
+an organization, but as a member
+of the ecosystem? That, of course, is
+also reflecting on technology function as
+well, right? how does IT outside the world,
+how to internalize external IT as well,
+because now we're getting resources from
+the outside world and sometimes providing
+resources to the outside the world and how
+to modernize IT so that you can scale
+innovation very quickly. Now it is time for
+our Playposit quiz. And with that, this is the end of this video. Thank you very
+much for watching.

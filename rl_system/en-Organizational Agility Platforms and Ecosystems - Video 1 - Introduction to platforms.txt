@@ -1,0 +1,134 @@
+Hello, my name is Alex
+Lopez, and this is the first in a set of videos
+about organization agility, platforms,
+and ecosystems. We have several different
+topics to cover. We're going to do
+an introduction to platforms first, and
+essentially discuss how to make platforms
+work for organization. After that, we're
+going to move towards ecosystems before
+going deeper into organization Adidity
+and how to implement organizational identity
+for your organization. Now, first, we're
+going to talk a little bit about
+platforms and introduction to platforms,
+about that concept. And one of the things
+that it's important to note is that
+a little bit hard to define on the
+platform is, right? So I like this
+typology that talks about transaction
+platforms, innovation
+platforms, integrated platforms, and
+investment platforms. And a big value that
+most of these platforms are, are providing
+to their users is really about facilitated
+transactions. Essentially provide these building blocks
+for innovation. If you think
+about innovation integrated platforms,
+you can think of them as a baseline
+where you can assemble almost
+like Legos, right? Assemble blocks on
+top of those platforms so they can create
+more in different products and services
+and innovation because the baseline is going to be
+already there. So key functions of
+platforms will be matching you have buyers and
+sellers or people who have data, people
+would not have data, interactions,
+complementing, and even as a basis
+of an ecosystem. Now, it's important
+to notice, you know, if you are in a
+platform, there's an absence or the presence
+of the platform, because, you know, if
+you are in the platform leader, right, is a
+different situation. It's not easy to
+create a new platform, but those companies
+that have created platforms have
+been really reaping a lot of benefits
+out of that. You also have to
+think about governance of the platform, right?
+What are the rules of the platform?
+How do you compete within those rules and
+within the platform? Now, our focus is
+really the innovation and integrated
+platforms. Those are very common in the technology
+sector, right? You think about SAP and
+Oracle as ERP systems. We think about Salesforce
+as a CRM system or even the big ones,
+right? Amazon, Google, and Microsoft in cloud
+services, in general, they provide so many
+given cloud services. Now, the idea here
+is that from the perspective of
+the organizations, those serve as a
+baseline, right? So they have
+evolved so that you can create, you
+can plug and play your own
+applications in the organization on top
+of those platforms. That is mostly
+accomplished and very commonly
+accomplished by APIs, application
+programmable interfaces. And the idea here is
+that those are hooks. So we have the
+platform providing some openings and hooks
+in which you can, you know, tag your own
+application and then quickly iterate
+through that because, again, the baseline, the
+data and the processes are provided by the
+platform itself. Now, the appeal of
+platforms has changed over time. So if you
+go back to the early, you know, to the late
+2000s, right, 2009, 2010, a lot of the discussions
+about cost saving. And over time,
+that says change, right? Because most
+of the time you have now platforms
+essentially being used as a base of
+innovation, right? So it's about, you
+know, making sure that the IT staff,
+the business function users are
+really willing to experiment because
+they know the baseline, they know
+that the processes, they know that the data
+is commonly shared, right? So you don't
+have to recreate the wheel every single
+time that you have to create a new application,
+a new product, because, you know, baseline is
+already there. So that has changed a
+lot of the perspective about platforms from
+like cost savings to something that
+really can provide, right, that trigger
+that allows you to innovate and to
+create new innovations and products and
+service in organization. The only thing to
+consider about platforms, they have a strong
+network effects. So one the things that
+we talk about network effects is that the
+more people use the platform, right? The
+more valuable it becomes. Facebook with one user, not that valuable.
+Facebook with multiple users
+becomes more valuable for every individual
+user, right? eBay, Uber,
+right? More riders and more drivers
+become, makes Uber more
+valuable, right? So it's a, it's a very
+important, you know, because that's one
+thing that you have in platforms, this idea
+about tipping points, right, which the
+platform becomes so valuable that it's, it
+really becomes part of the daily lives of
+people, of the users. So there's a lot
+of incentives in creating the
+platforms versus making them
+grow over time. Now, this means also that some companies that
+have platforms, right, they become
+really giant, but there's a
+lot of value for mid-tier companies benefited from platforms
+because, again, they don't have to
+recreate everything from scratch, right?
+They can innovate, they can create new
+products and can create new companies
+altogether because the platforms that are
+providing processes and data in most cases
+are already there. Now it is time for
+our Playposite quiz. And with that, this is the end
+of this video. Thank you very
+much for watching.

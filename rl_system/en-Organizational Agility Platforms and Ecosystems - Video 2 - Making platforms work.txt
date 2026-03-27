@@ -1,0 +1,74 @@
+Hello, my name is Alex Lopez, and this is part
+of a series of videos about
+organization agility, platforms, and
+ecosystems. And in this particular
+video, we're going to discuss
+how to make platforms work for
+your organization. And one of the things
+that you have to consider is this idea that in
+the future, right, you might have
+organization essentially that is all about
+orchestrating platforms. And there are
+different ways of doing that. So there's an
+interesting paper of McKinsey that talks
+about three different baseline types of
+platforms, right? One are customer
+-joining platforms, essentially talking about interactions with
+the customers, essentially as being
+thought as a platform. I think what the
+multiple elements that will be plug and play
+into that interaction. The other one
+might be a business capability as a
+platform as well, and looking at that as
+essentially the basic operations like HR,
+finance, that can actually be thought about
+as being implemented on top of a platform.
+This is what main organizations are
+kind of already doing, looking at the
+functions as platforms. And then you have, of
+course, the core IT platforms, which again,
+organizations are also thinking and
+executing that a lot, which is the idea
+about using technology platforms like cloud
+services and others that provide the
+technology, you know, functionality for the
+overall organization. The other component
+here to consider is this idea that it
+takes a concerted effort, right? So it's
+not something that you are going to
+start from the very beginning. You have to
+think strategically. You have to think
+about a maturity model in which you're
+orchestrating that use of those platforms
+over time, and dealing with multiple
+variables as well. Most of those factors
+are not technology. There are business
+factors that are going to be
+implemented, right, and be supported by
+that platform, but sometimes the
+technology platform. So we have to
+consider, for example, what is our XAAS,
+right, was it everything as a service? What
+was it the direction where do you want
+to go with that? Are you ready for
+platforms? Do you have a way to, you
+know, to really think about the
+organization challenges and the
+processes, right? What are our priorities
+for the execution of platforms? Are
+there going to be people going to be
+trained in the use of those platforms
+in the process, that are going to be
+modified to do that. And of course,
+in the end, considering the
+technology that's going to be supporting all
+those platform efforts. So those essentially
+are your six main factors that you
+have to consider, why, that you have
+to really monitor very carefully as
+you evolve your organization into
+something that is really much more reliant,
+but also benefits much more from the
+use of platforms. And if that, this
+is the end of this video, Thank you very
+much for watching.

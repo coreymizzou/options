@@ -107,22 +107,35 @@ class PositionTracker:
         Check if a position must be force-closed by a hard rule.
         Returns (must_exit: bool, reason: str)
         """
-        # ── Grace period: never fire hard rules within 2 minutes of opening
-        # This prevents a bad current_price reading on the first tick from
-        # immediately triggering a stop right after the user says y to track.
+        # ── Grace period: never fire hard rules within 10 minutes of opening
+        # Gives price data time to stabilize after entry
         entry_time = position.get("entry_time", "")
         if entry_time:
             try:
                 entry_dt   = datetime.fromisoformat(entry_time)
                 secs_held  = (datetime.now() - entry_dt).total_seconds()
-                if secs_held < 120:
-                    return False, ""   # too early — give it 2 minutes
+                if secs_held < 600:
+                    return False, ""   # too early — give it 10 minutes
             except Exception:
                 pass
 
         entry_price = position["entry_price"]
         entry_cost  = position["entry_cost"]
         contracts   = position.get("contracts", 1)
+
+        # ── Price sanity check
+        # If the fetched price is more than 3x the entry price or less than
+        # 1/10th of it, something is wrong with the data — skip hard rules
+        # this tick rather than firing a false stop or target
+        if entry_price and entry_price > 0:
+            ratio = current_option_price / entry_price
+            if ratio > 3.0 or ratio < 0.10:
+                logger.warning(
+                    f"Suspicious price for {position.get('ticker')}: "
+                    f"entry=${entry_price} current=${current_option_price} "
+                    f"ratio={ratio:.2f} — skipping hard rules this tick"
+                )
+                return False, ""
 
         # Current value
         current_value = current_option_price * 100 * contracts
