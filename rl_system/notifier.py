@@ -121,11 +121,11 @@ class Alert:
             for r in self.reasons[:4]:   # cap at 4 for toast readability
                 lines.append(f"  • {r}")
         if self.details.get("entry"):
-            lines.append(f"Entry: ${self.details['entry']}")
+            lines.append(f"Entry: {self.details['entry']}")
         if self.details.get("stop"):
-            lines.append(f"Stop:  ${self.details['stop']}")
+            lines.append(f"Stop:  {self.details['stop']}")
         if self.details.get("target"):
-            lines.append(f"Target: ${self.details['target']}")
+            lines.append(f"Target: {self.details['target']}")
         return "\n".join(lines) if lines else self.action
 
     def terminal_str(self) -> str:
@@ -162,8 +162,7 @@ def _send_terminal(alert: Alert):
 def _send_windows_toast(alert: Alert):
     """Send Windows desktop toast notification."""
     if not _TOAST_AVAILABLE:
-        if DEBUG_MODE:
-            logger.debug("Windows toast not available — install winotify or plyer")
+        logger.warning("Windows toast not available — run: pip install winotify")
         return
 
     try:

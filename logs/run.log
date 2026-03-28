@@ -605,3 +605,168 @@
 2026-03-27 13:29:57,556 [WARNING] notifier: Windows toast failed: No usable implementation found!
 2026-03-27 13:29:57,556 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
 2026-03-27 13:29:57,556 [INFO] run: Loop stopped after 9 ticks
+2026-03-27 13:31:38,544 [INFO] database: Database initialized at ./scanner_data.db
+2026-03-27 13:31:38,544 [INFO] position_tracker: PositionTracker initialized — 0 open positions restored
+2026-03-27 13:31:38,545 [INFO] rl_agent: DecisionAgent initialized — enter_model: 0 updates, exit_model: 0 updates
+2026-03-27 13:31:38,547 [WARNING] notifier: Windows toast failed: No usable implementation found!
+2026-03-27 13:31:38,547 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
+2026-03-27 13:31:38,547 [INFO] run: Starting 60-second loop (PAPER mode)
+2026-03-27 13:31:39,867 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 13:33:30,325 [INFO] run: Scanner complete: 15 scanned, 3 meet threshold
+2026-03-27 13:33:30,326 [INFO] run: Tick 1: Scanner refreshed — regime=RISK_OFF VIX=31.2 3 valid candidates
+2026-03-27 13:33:30,334 [WARNING] notifier: Windows toast failed: No usable implementation found!
+2026-03-27 13:33:30,334 [INFO] notifier: Alert sent: ENTER MSFT conf=0.60 force=False
+2026-03-27 13:33:59,206 [INFO] run:   Candidate MSFT: ENTER conf=0.60 (confluence 10pts)
+2026-03-27 13:33:59,208 [WARNING] notifier: Windows toast failed: No usable implementation found!
+2026-03-27 13:33:59,208 [INFO] notifier: Alert sent: ENTER META conf=0.70 force=False
+2026-03-27 13:34:01,498 [INFO] run:   Candidate META: ENTER conf=0.70 (confluence 10pts)
+2026-03-27 13:34:01,499 [INFO] run:   Candidate CRM: ENTER conf=0.55 (confluence 9pts)
+2026-03-27 13:37:02,302 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 13:38:53,700 [INFO] run: Scanner complete: 15 scanned, 6 meet threshold
+2026-03-27 13:38:53,702 [INFO] run: Tick 5: Scanner refreshed — regime=RISK_OFF VIX=30.8 6 valid candidates
+2026-03-27 13:38:53,707 [WARNING] notifier: Windows toast failed: No usable implementation found!
+2026-03-27 13:38:53,707 [INFO] notifier: Alert sent: ENTER AAPL conf=0.70 force=False
+2026-03-27 13:39:23,715 [INFO] run:   Candidate AAPL: ENTER conf=0.70 (confluence 11pts)
+2026-03-27 13:39:23,717 [WARNING] notifier: Windows toast failed: No usable implementation found!
+2026-03-27 13:39:23,717 [INFO] notifier: Alert sent: ENTER GOOGL conf=0.70 force=False
+2026-03-27 13:39:45,385 [INFO] position_tracker: Position opened: #1 GOOGL BEAR_PUT_SPREAD entry=$3.27 stop=$1.62 target=$6.62
+2026-03-27 13:39:45,386 [INFO] run:   GOOGL now tracked — action state set to HOLD
+2026-03-27 13:39:45,387 [INFO] run:   Candidate GOOGL: ENTER conf=0.70 (confluence 10pts)
+2026-03-27 13:39:45,388 [WARNING] notifier: Windows toast failed: No usable implementation found!
+2026-03-27 13:39:45,388 [INFO] notifier: Alert sent: ENTER MU conf=0.70 force=False
+2026-03-27 13:39:49,634 [INFO] position_tracker: Position opened: #2 MU BEAR_PUT_SPREAD entry=$10.64 stop=$5.31 target=$20.31
+2026-03-27 13:39:49,634 [INFO] run:   MU now tracked — action state set to HOLD
+2026-03-27 13:39:49,635 [INFO] run:   Candidate MU: ENTER conf=0.70 (confluence 10pts)
+2026-03-27 13:39:50,063 [INFO] run:   GOOGL #1: HOLD conf=0.00 pnl=$+558.00
+2026-03-27 13:39:50,462 [INFO] run:   MU #2: HOLD conf=0.00 pnl=$+1151.00
+2026-03-27 13:42:50,528 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 13:44:42,076 [INFO] run: Scanner complete: 15 scanned, 5 meet threshold
+2026-03-27 13:44:42,078 [INFO] run: Tick 9: Scanner refreshed — regime=RISK_OFF VIX=31.0 5 valid candidates
+2026-03-27 13:52:25,622 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 13:54:21,468 [INFO] run: Scanner complete: 15 scanned, 6 meet threshold
+2026-03-27 13:54:21,471 [INFO] run: Tick 14: Scanner refreshed — regime=RISK_OFF VIX=30.9 6 valid candidates
+2026-03-27 13:54:21,856 [WARNING] notifier: Windows toast failed: No usable implementation found!
+2026-03-27 13:54:21,857 [INFO] notifier: Alert sent: EXIT GOOGL conf=1.00 force=True
+2026-03-27 13:55:21,868 [INFO] position_tracker: Position closed: #1 GOOGL TARGET_HIT: up 164% (+$535.00) P&L=$+535.00 (+1.64R)
+2026-03-27 13:55:21,871 [INFO] rl_agent: Agent updated: GOOGL realized_r=1.636 reward=1.636 enter_updates=1 exit_updates=1
+2026-03-27 13:55:22,315 [WARNING] notifier: Windows toast failed: No usable implementation found!
+2026-03-27 13:55:22,315 [INFO] notifier: Alert sent: EXIT MU conf=1.00 force=True
+2026-03-27 13:56:22,325 [INFO] position_tracker: Position closed: #2 MU TARGET_HIT: up 108% (+$1148.00) P&L=$+1148.00 (+1.08R)
+2026-03-27 13:56:22,327 [INFO] rl_agent: Agent updated: MU realized_r=1.079 reward=1.079 enter_updates=2 exit_updates=2
+2026-03-27 13:56:22,330 [WARNING] notifier: Windows toast failed: No usable implementation found!
+2026-03-27 13:56:22,330 [INFO] notifier: Alert sent: ENTER CRWD conf=0.70 force=False
+2026-03-27 13:56:52,339 [INFO] run:   Candidate CRWD: ENTER conf=0.70 (confluence 10pts)
+2026-03-27 13:56:52,342 [WARNING] notifier: Windows toast failed: No usable implementation found!
+2026-03-27 13:56:52,342 [INFO] notifier: Alert sent: ENTER NFLX conf=0.85 force=False
+2026-03-27 13:56:52,397 [INFO] run:   Candidate NFLX: ENTER conf=0.85 (confluence 10pts)
+2026-03-27 13:57:53,270 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 13:59:43,110 [INFO] run: Scanner complete: 15 scanned, 6 meet threshold
+2026-03-27 13:59:43,111 [INFO] run: Tick 16: Scanner refreshed — regime=RISK_OFF VIX=31.0 6 valid candidates
+2026-03-27 13:59:43,116 [WARNING] notifier: Windows toast failed: No usable implementation found!
+2026-03-27 13:59:43,116 [INFO] notifier: Alert sent: ENTER AMZN conf=0.70 force=False
+2026-03-27 14:00:13,127 [INFO] run:   Candidate AMZN: ENTER conf=0.70 (confluence 10pts)
+2026-03-27 14:00:13,130 [WARNING] notifier: Windows toast failed: No usable implementation found!
+2026-03-27 14:00:13,130 [INFO] notifier: Alert sent: ENTER COIN conf=0.70 force=False
+2026-03-27 14:00:43,135 [INFO] run:   Candidate COIN: ENTER conf=0.70 (confluence 10pts)
+2026-03-27 14:29:14,505 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 14:31:23,267 [INFO] run: Scanner complete: 15 scanned, 8 meet threshold
+2026-03-27 14:31:23,268 [INFO] run: Tick 18: Scanner refreshed — regime=RISK_OFF VIX=31.2 8 valid candidates
+2026-03-27 14:31:23,277 [WARNING] notifier: Windows toast failed: No usable implementation found!
+2026-03-27 14:31:23,277 [INFO] notifier: Alert sent: ENTER NVDA conf=0.70 force=False
+2026-03-27 14:48:44,211 [INFO] run:   Candidate NVDA: ENTER conf=0.70 (confluence 10pts)
+2026-03-27 14:48:45,103 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 15:05:55,451 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 15:05:55,451 [ERROR] yfinance: ['NVDA']: Timeout('Failed to perform, curl: (28) Operation timed out after 1029941 milliseconds with 0 bytes received. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 16:11:23,397 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 16:11:23,398 [ERROR] yfinance: ['SPY']: Timeout('Failed to perform, curl: (28) Connection timed out after 571561 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 16:13:35,964 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 16:13:35,966 [ERROR] yfinance: ['AMZN']: Timeout('Failed to perform, curl: (28) Operation timed out after 114969 milliseconds with 0 bytes received. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 16:25:26,324 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 16:25:26,324 [ERROR] yfinance: ['AMD']: Timeout('Failed to perform, curl: (28) Connection timed out after 693531 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 16:39:03,278 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 16:39:03,278 [ERROR] yfinance: ['CRWD']: Timeout('Failed to perform, curl: (28) Connection timed out after 810046 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 16:41:01,453 [INFO] run: Scanner complete: 15 scanned, 5 meet threshold
+2026-03-27 16:41:01,456 [INFO] run: Tick 20: Scanner refreshed — regime=RISK_OFF VIX=31.1 5 valid candidates
+2026-03-27 16:41:02,324 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 16:42:45,904 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 16:42:45,906 [ERROR] yfinance: ['GOOGL']: Timeout('Failed to perform, curl: (28) Connection timed out after 15536 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 16:45:42,932 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 16:45:42,932 [ERROR] yfinance: ['AMZN']: Timeout('Failed to perform, curl: (28) Operation timed out after 154791 milliseconds with 0 bytes received. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 16:50:03,104 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 16:50:03,105 [ERROR] yfinance: ['COIN']: Timeout('Failed to perform, curl: (28) Connection timed out after 104462 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 16:53:19,245 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 16:53:19,245 [ERROR] yfinance: ['SPY']: Timeout('Failed to perform, curl: (28) Connection timed out after 29661 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 16:53:59,654 [INFO] run: Scanner complete: 15 scanned, 6 meet threshold
+2026-03-27 16:53:59,655 [INFO] run: Tick 21: Scanner refreshed — regime=RISK_OFF VIX=31.0 6 valid candidates
+2026-03-27 16:54:00,411 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 16:56:01,288 [INFO] run: Scanner complete: 15 scanned, 5 meet threshold
+2026-03-27 16:56:01,290 [INFO] run: Tick 22: Scanner refreshed — regime=RISK_OFF VIX=31.0 5 valid candidates
+2026-03-27 17:15:48,145 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 17:17:39,189 [INFO] run: Scanner complete: 15 scanned, 5 meet threshold
+2026-03-27 17:17:39,190 [INFO] run: Tick 25: Scanner refreshed — regime=RISK_OFF VIX=31.0 5 valid candidates
+2026-03-27 17:24:58,734 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 17:33:04,863 [INFO] run: Scanner complete: 15 scanned, 5 meet threshold
+2026-03-27 17:33:04,863 [INFO] run: Tick 27: Scanner refreshed — regime=RISK_OFF VIX=31.0 5 valid candidates
+2026-03-27 17:33:05,725 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 17:33:36,128 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 17:33:36,130 [ERROR] yfinance: ['NVDA']: Timeout('Failed to perform, curl: (28) Connection timed out after 25485 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 18:13:04,388 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 18:13:04,388 [ERROR] yfinance: ['AMZN']: Timeout('Failed to perform, curl: (28) Connection timed out after 907643 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 18:42:50,442 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 18:42:50,442 [ERROR] yfinance: ['PLTR']: Timeout('Failed to perform, curl: (28) Connection timed out after 310936 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 18:45:39,239 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 18:45:39,240 [ERROR] yfinance: ['CRM']: Timeout('Failed to perform, curl: (28) Operation timed out after 33470 milliseconds with 0 bytes received. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 18:56:44,056 [INFO] run: Scanner complete: 15 scanned, 4 meet threshold
+2026-03-27 18:56:44,057 [INFO] run: Tick 28: Scanner refreshed — regime=RISK_OFF VIX=31.0 4 valid candidates
+2026-03-27 18:56:44,867 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 18:59:24,787 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 18:59:24,789 [ERROR] yfinance: ['MSFT']: Timeout('Failed to perform, curl: (28) Connection timed out after 115456 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 19:05:58,121 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 19:05:58,121 [ERROR] yfinance: ['SPY']: Timeout('Failed to perform, curl: (28) Connection timed out after 386624 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 19:07:07,282 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 19:07:07,282 [ERROR] yfinance: ['SPY']: Timeout('Failed to perform, curl: (28) Operation timed out after 61789 milliseconds with 0 bytes received. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 19:08:24,531 [INFO] run: Scanner complete: 15 scanned, 3 meet threshold
+2026-03-27 19:08:24,532 [INFO] run: Tick 29: Scanner refreshed — regime=RISK_OFF VIX=31.0 3 valid candidates
+2026-03-27 19:08:25,423 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 19:41:48,617 [INFO] run: Scanner complete: 15 scanned, 2 meet threshold
+2026-03-27 19:41:48,618 [INFO] run: Tick 30: Scanner refreshed — regime=RISK_OFF VIX=31.0 2 valid candidates
+2026-03-27 19:41:49,430 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 19:43:39,366 [INFO] run: Scanner complete: 15 scanned, 2 meet threshold
+2026-03-27 19:43:39,367 [INFO] run: Tick 31: Scanner refreshed — regime=RISK_OFF VIX=31.0 2 valid candidates
+2026-03-27 19:51:46,061 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 20:08:48,737 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 20:08:48,738 [ERROR] yfinance: ['NFLX']: Timeout('Failed to perform, curl: (28) Operation timed out after 42647 milliseconds with 0 bytes received. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 20:12:54,777 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 20:12:54,777 [ERROR] yfinance: ['QQQ']: Timeout('Failed to perform, curl: (28) Connection timed out after 218914 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 20:12:55,858 [INFO] run: Scanner complete: 15 scanned, 2 meet threshold
+2026-03-27 20:12:55,859 [INFO] run: Tick 33: Scanner refreshed — regime=RISK_OFF VIX=31.0 2 valid candidates
+2026-03-27 20:12:56,623 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 20:13:58,571 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 20:13:58,571 [ERROR] yfinance: ['NVDA']: Timeout('Failed to perform, curl: (28) Connection timed out after 56915 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 20:24:54,552 [ERROR] yfinance: 
+1 Failed download:
+2026-03-27 20:24:54,671 [ERROR] yfinance: ['AMD']: Timeout('Failed to perform, curl: (28) Connection timed out after 36480 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.')
+2026-03-27 20:47:55,601 [INFO] run: Scanner complete: 15 scanned, 1 meet threshold
+2026-03-27 20:47:55,602 [INFO] run: Tick 34: Scanner refreshed — regime=RISK_OFF VIX=31.0 1 valid candidates
+2026-03-27 20:47:56,553 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 20:49:46,260 [INFO] run: Scanner complete: 15 scanned, 2 meet threshold
+2026-03-27 20:49:46,263 [INFO] run: Tick 35: Scanner refreshed — regime=RISK_OFF VIX=31.0 2 valid candidates

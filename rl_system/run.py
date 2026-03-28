@@ -300,54 +300,102 @@ def ask_track_position(scanner_result: Dict, tracker: PositionTracker,
 
     sep = "=" * 64
     print("\n" + sep)
-    print(f"  Did you execute this trade in ThinkorSwim?")
+    print(f"  ⚠  ONLY say y if your order has FILLED in ThinkorSwim.")
+    print(f"  ⚠  Do NOT say y if the order is still Working/Pending.")
+    print(f"  ⚠  Check for a green 'Filled' confirmation before proceeding.")
     response = timed_input(
-        f"  Track {ticker} position? (y/n, 30s timeout): ",
-        timeout=30, default="n"
+        f"  Has your {ticker} order FILLED? (y/n, 60s timeout): ",
+        timeout=60, default="n"
     )
 
     if response != "y":
         print(f"  Skipped — not tracking {ticker}")
+        print(f"  (Come back and use manual_override_open once the order fills)")
         print(sep + "\n")
         return None
 
-    # Ask for fill price
+    # Ask for actual fill price
+    print(f"  Enter your ACTUAL fill price from ThinkorSwim.")
+    print(f"  (Check the Filled Orders tab for the exact price)")
     fill_str = timed_input(
-        f"  What did you pay? (suggested ${suggested_entry}, press enter to use): ",
-        timeout=30, default=str(suggested_entry)
+        f"  Fill price (suggested ${suggested_entry}): ",
+        timeout=60, default=str(suggested_entry)
     )
 
     try:
         fill_price = float(fill_str) if fill_str else suggested_entry
     except ValueError:
         fill_price = suggested_entry
-        print(f"  Could not parse price — using suggested ${suggested_entry}")
+        print(f"  Could not parse — using suggested ${suggested_entry}")
 
-    # Open the position
-    position_id = tracker.open_position(scanner_result)
-    if position_id:
-        # Update with actual fill price
-        entry_cost = fill_price * 100 * pricing.get("contracts", 1)
-        stop_price  = round(fill_price * (1 - cfg.STOP_LOSS_PCT), 2)
-        target_price = round(fill_price * (1 + cfg.PROFIT_TARGET_PCT), 2)
-        with db.get_connection() as conn:
-            conn.execute(
-                """UPDATE positions SET
-                   entry_price = ?, entry_cost = ?,
-                   stop_price = ?, target_price = ?
-                   WHERE id = ?""",
-                (fill_price, entry_cost, stop_price, target_price, position_id)
+    # Sanity check: warn if fill price is very different from suggested
+    if suggested_entry and suggested_entry > 0:
+        diff_pct = abs(fill_price - suggested_entry) / suggested_entry * 100
+        if diff_pct > 20:
+            print(f"  ⚠  Fill ${fill_price} is {diff_pct:.0f}% different from suggested ${suggested_entry}")
+            confirm = timed_input(
+                f"  Are you sure? (y/n): ",
+                timeout=30, default="n"
             )
+            if confirm != "y":
+                print(f"  Cancelled — not tracking {ticker}")
+                print(sep + "\n")
+                return None
+
+    # Open the position — bypass can_enter() since trade is already executed
+    # User has already clicked the button in ThinkorSwim, we just need to record it
+    # Calling open_position goes through can_enter which could block on cooldown/limits
+    # Use db.insert_position directly so nothing can block a trade already made
+    from database import insert_position as _insert_pos
+    from datetime import datetime as _dt
+    import json as _json
+
+    trade_   = scanner_result.get("trade", {})
+    pricing_ = scanner_result.get("pricing", {})
+    vol_     = scanner_result.get("vol", {})
+    main_    = trade_.get("main_leg", {})
+    exp_     = main_.get("exp", trade_.get("exp", ""))
+    entry_dte_ = None
+    if exp_:
+        try:
+            entry_dte_ = (_dt.strptime(exp_, "%Y-%m-%d") - _dt.now()).days
+        except Exception:
+            pass
+
+    _pos_data = {
+        "ticker":           scanner_result.get("ticker", "?"),
+        "strategy":         trade_.get("strategy"),
+        "direction":        trade_.get("direction"),
+        "option_type":      main_.get("option_type"),
+        "strike":           main_.get("strike"),
+        "expiration":       exp_,
+        "entry_price":      fill_price,
+        "entry_cost":       fill_price * 100 * pricing_.get("contracts", 1),
+        "contracts":        pricing_.get("contracts", 1),
+        "stop_price":       round(fill_price * (1 - cfg.STOP_LOSS_PCT), 2),
+        "target_price":     round(fill_price * (1 + cfg.PROFIT_TARGET_PCT), 2),
+        "entry_time":       _dt.now().isoformat(),
+        "confluence_score": scanner_result.get("confluence", {}).get("score"),
+        "entry_ivr":        vol_.get("ivr"),
+        "entry_dte":        entry_dte_,
+        "notes":            "recorded via y/n prompt",
+        "raw_scanner_data": _json.dumps(scanner_result, default=str)
+    }
+    position_id = _insert_pos(_pos_data)
+    if position_id:
+        tracker._open[position_id] = db.get_position_by_id(position_id)
+        stop_price   = round(fill_price * (1 - cfg.STOP_LOSS_PCT), 2)
+        target_price = round(fill_price * (1 + cfg.PROFIT_TARGET_PCT), 2)
         print(f"  ✓ {ticker} tracked — entry=${fill_price} "
               f"stop=${stop_price} target=${target_price}")
         db.log_journal_event(
             "POSITION_OPENED", ticker=ticker, position_id=position_id,
             action="ENTER", confidence=confidence,
-            reason_summary=f"User confirmed entry: {ticker} @ ${fill_price}",
+            reason_summary=f"User confirmed fill: {ticker} @ ${fill_price}",
             details={"fill_price": fill_price, "suggested": suggested_entry}
         )
     else:
-        print(f"  Could not open position — check logs")
+        print(f"  Could not record position — check logs")
 
     print(sep + "\n")
     return position_id
@@ -370,9 +418,10 @@ def ask_close_position(position_id: int, position: Dict, tracker: PositionTracke
     sep = "=" * 64
     print("\n" + sep)
     print(f"  Current P&L: {sign}${pnl:.2f} ({r:+.2f}R)")
+    print(f"  Check ThinkorSwim for the current bid/ask before deciding.")
     response = timed_input(
-        f"  Close {ticker} position? (y/n, 30s timeout): ",
-        timeout=30, default="n"
+        f"  Close {ticker} position? (y/n, 60s timeout): ",
+        timeout=60, default="n"
     )
 
     if response != "y":
@@ -383,7 +432,7 @@ def ask_close_position(position_id: int, position: Dict, tracker: PositionTracke
     # Ask for exit fill price
     fill_str = timed_input(
         f"  What did you close at? (suggested ${current_price:.2f}, press enter to use): ",
-        timeout=30, default=str(round(current_price, 2))
+        timeout=60, default=str(round(current_price, 2))
     )
 
     try:
@@ -410,7 +459,7 @@ def ask_close_position(position_id: int, position: Dict, tracker: PositionTracke
 # Simple price cache — stores (price, timestamp) per position_id
 # Avoids hammering Tradier API every tick for every open position
 _price_cache: Dict[int, tuple] = {}
-_PRICE_CACHE_TTL = 55  # seconds — refresh just before each tick
+_PRICE_CACHE_TTL = 30  # seconds — refresh twice per tick for faster target/stop detection
 
 def get_current_option_price(position: Dict) -> Optional[float]:
     """
@@ -624,6 +673,7 @@ def evaluate_open_positions(
                 rolling_drawdown=_rolling_drawdown()
             )
 
+            _clear_price_cache(position_id)
             action_state.update(str(position_id), "EXIT", 1.0)
             actions_taken.append({
                 "type": "HARD_EXIT", "ticker": ticker,
@@ -710,6 +760,7 @@ def evaluate_open_positions(
 
             # If user closed it, update agent and skip rest of loop for this position
             if closed:
+                _clear_price_cache(position_id)
                 result = {
                     "realized_pnl": tracker.unrealized_pnl(position_id, current_option_price)
                     if position_id in tracker.open_positions else
@@ -859,7 +910,8 @@ def evaluate_new_candidates(
 
             # If user tracked it, immediately flip action_state to HOLD
             # so the ENTER alert doesn't fire again on the next tick
-            if position_id is not None:
+            _just_tracked = position_id is not None
+            if _just_tracked:
                 action_state.update(key, "HOLD", confidence)
                 logger.info(f"  {ticker} now tracked — action state set to HOLD")
 
@@ -896,7 +948,9 @@ def evaluate_new_candidates(
                 }
             )
 
-        action_state.update(key, action, confidence)
+        # Only update action state if we didn't just track — tracking already set it to HOLD
+        if not (should_notify and _just_tracked if should_notify else False):
+            action_state.update(key, action, confidence)
 
         if DEBUG_MODE or (changed and action == "ENTER"):
             logger.info(
@@ -926,6 +980,11 @@ def _ticks_held(position: Dict) -> int:
         return 0
 
 
+def _clear_price_cache(position_id: int):
+    """Remove cached price for a closed position."""
+    _price_cache.pop(position_id, None)
+
+
 def _rolling_drawdown() -> float:
     """
     Compute recent rolling drawdown from closed positions.
@@ -938,6 +997,131 @@ def _rolling_drawdown() -> float:
     # Only count losses — drawdown is about downside, not net P&L
     losses = sum(p.get("realized_pnl", 0) for p in recent if p.get("realized_pnl", 0) < 0)
     return losses / cfg.ACCOUNT_SIZE
+
+
+# =============================================================================
+#  CLI COMMAND HANDLERS
+# =============================================================================
+
+def _cmd_close_position(tracker: PositionTracker, position_id: int):
+    """
+    Mark a single position as manually closed.
+    Asks for exit price, records the close, sets cooldown.
+    Use this after manually closing a trade in ThinkorSwim.
+    """
+    position = tracker.get_position(position_id)
+    if not position:
+        # Check if it exists but is already closed
+        pos = db.get_position_by_id(position_id)
+        if pos:
+            print(f"  Position #{position_id} ({pos['ticker']}) is already closed.")
+        else:
+            print(f"  Position #{position_id} not found.")
+        return
+
+    ticker     = position.get("ticker", "?")
+    entry      = position.get("entry_price", 0)
+    entry_cost = position.get("entry_cost", 0)
+
+    print(f"\n  Closing position #{position_id}: {ticker}")
+    print(f"  Entry: ${entry}  |  Entry cost: ${entry_cost:.2f}")
+
+    fill_str = input(f"  Exit price (what did you close at?): ").strip()
+    try:
+        exit_price = float(fill_str)
+    except ValueError:
+        print(f"  Invalid price — cancelled")
+        return
+
+    result = tracker.close_position(position_id, exit_price, "MANUAL")
+    pnl = result.get("realized_pnl", 0)
+    r   = result.get("realized_r", 0)
+    sign = "+" if pnl >= 0 else ""
+    print(f"  ✓ #{position_id} {ticker} closed @ ${exit_price}")
+    print(f"    P&L: {sign}${pnl:.2f} ({r:+.2f}R)")
+    print(f"    24hr cooldown set on {ticker}")
+
+
+def _cmd_close_all_positions(tracker: PositionTracker):
+    """
+    Mark ALL open positions as manually closed.
+    Asks for exit price per position.
+    Use this after closing all trades in ThinkorSwim.
+    """
+    if tracker.open_count == 0:
+        print("  No open positions to close.")
+        return
+
+    print(f"\n  Closing all {tracker.open_count} open position(s):")
+    tracker.print_summary()
+
+    confirm = input("\n  Close ALL positions? (y/n): ").strip().lower()
+    if confirm != "y":
+        print("  Cancelled.")
+        return
+
+    for position_id, position in list(tracker.open_positions.items()):
+        ticker = position.get("ticker", "?")
+        entry  = position.get("entry_price", 0)
+        print(f"\n  Position #{position_id}: {ticker} (entry ${entry})")
+        fill_str = input(f"  Exit price for {ticker} (or press enter to skip): ").strip()
+
+        if not fill_str:
+            print(f"  Skipping {ticker}")
+            continue
+
+        try:
+            exit_price = float(fill_str)
+        except ValueError:
+            print(f"  Invalid price — skipping {ticker}")
+            continue
+
+        result = tracker.close_position(position_id, exit_price, "MANUAL")
+        pnl  = result.get("realized_pnl", 0)
+        r    = result.get("realized_r", 0)
+        sign = "+" if pnl >= 0 else ""
+        print(f"  ✓ {ticker} closed @ ${exit_price} — P&L: {sign}${pnl:.2f} ({r:+.2f}R)")
+
+    print(f"\n  Done. All closed positions recorded.")
+
+
+def _cmd_delete_position(position_id: int):
+    """
+    Delete a position entirely from the database — no record kept.
+    Use this for orders that never filled (working orders you cancelled).
+    NOT for real closed trades — use --close for those.
+    """
+    pos = db.get_position_by_id(position_id)
+    if not pos:
+        print(f"  Position #{position_id} not found.")
+        return
+
+    ticker = pos.get("ticker", "?")
+    status = pos.get("status", "?")
+
+    print(f"\n  ⚠  About to permanently DELETE position #{position_id}: {ticker} ({status})")
+    print(f"  Use --close instead if this was a real trade that filled.")
+    confirm = input(f"  Delete #{position_id} {ticker}? (y/n): ").strip().lower()
+
+    if confirm != "y":
+        print("  Cancelled.")
+        return
+
+    with db.get_connection() as conn:
+        conn.execute("DELETE FROM tick_snapshots WHERE position_id = ?", (position_id,))
+        conn.execute("DELETE FROM recommendations WHERE position_id = ?", (position_id,))
+        conn.execute("DELETE FROM positions WHERE id = ?", (position_id,))
+
+    db.log_journal_event(
+        "POSITION_CLOSED",
+        ticker=ticker,
+        position_id=position_id,
+        action="DELETE",
+        reason_summary=f"Position #{position_id} {ticker} deleted (unfilled order)"
+    )
+
+    print(f"  ✓ Position #{position_id} {ticker} deleted from database.")
+    print(f"  (No cooldown set — this was an unfilled order)")
 
 
 def print_status(tracker: PositionTracker, agent: DecisionAgent):
@@ -996,6 +1180,12 @@ def main():
     parser.add_argument("--debug",   action="store_true", help="Debug/verbose mode")
     parser.add_argument("--status",  action="store_true", help="Show status and exit")
     parser.add_argument("--weights", action="store_true", help="Show agent weights and exit")
+    parser.add_argument("--close",   type=int, metavar="ID",
+                        help="Mark position ID as manually closed and remove it")
+    parser.add_argument("--close-all", action="store_true",
+                        help="Remove ALL open positions (use after manual close in ThinkorSwim)")
+    parser.add_argument("--delete",  type=int, metavar="ID",
+                        help="Delete a position entirely (no record kept — use for unfilled orders)")
     args = parser.parse_args()
 
     if args.debug:
@@ -1017,6 +1207,18 @@ def main():
 
     if args.weights:
         agent.print_weight_summary()
+        return
+
+    if args.close:
+        _cmd_close_position(tracker, args.close)
+        return
+
+    if args.close_all:
+        _cmd_close_all_positions(tracker)
+        return
+
+    if args.delete:
+        _cmd_delete_position(args.delete)
         return
 
     # ── Startup log
