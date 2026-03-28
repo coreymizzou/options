@@ -1125,31 +1125,141 @@ def _cmd_delete_position(position_id: int):
 
 
 def print_status(tracker: PositionTracker, agent: DecisionAgent):
-    """Print current system status to terminal."""
-    print("\n" + "═" * 60)
+    """Print full system status including live P&L on open positions."""
+    W = 68
+    print("\n" + "═" * W)
     print("  OPTIONS SCANNER — SYSTEM STATUS")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("═" * 60)
+    print("═" * W)
 
+    # ── Open positions with live P&L
     print(f"\n  Open positions ({tracker.open_count}/{cfg.MAX_CONCURRENT_POSITIONS}):")
-    tracker.print_summary()
+    if not tracker.open_positions:
+        print("    No open positions.")
+    else:
+        print(f"  {'ID':<5} {'Ticker':<7} {'Strategy':<20} {'Entry':>7} "
+              f"{'Stop':>7} {'Target':>7} {'DTE':>4} {'P&L':>10} {'R':>7} {'Since':<16}")
+        print("  " + "─" * (W - 2))
 
+        total_unrealized = 0.0
+        for pid, pos in tracker.open_positions.items():
+            ticker     = pos.get("ticker", "?")
+            entry      = pos.get("entry_price", 0) or 0
+            stop       = pos.get("stop_price", 0) or 0
+            target     = pos.get("target_price", 0) or 0
+            contracts  = pos.get("contracts", 1) or 1
+            entry_time = pos.get("entry_time", "")[:16]
+            exp        = pos.get("expiration", "?")
+
+            # DTE
+            dte = "?"
+            try:
+                exp_dt = datetime.strptime(exp, "%Y-%m-%d")
+                dte    = str((exp_dt - datetime.now()).days)
+            except Exception:
+                pass
+
+            # Live P&L — fetch current price
+            current_price = get_current_option_price(pos)
+            if current_price and current_price != entry:
+                pnl  = (current_price - entry) * 100 * contracts
+                r    = pnl / (entry * 100 * contracts) if entry > 0 else 0
+                pnl_str = f"${pnl:+.0f}"
+                r_str   = f"{r:+.2f}R"
+                total_unrealized += pnl
+            else:
+                pnl_str = "fetching..."
+                r_str   = "─"
+
+            # Color hint based on P&L
+            if pnl_str.startswith("$+"):
+                pnl_display = f"[+] {pnl_str}"
+            elif pnl_str.startswith("$-"):
+                pnl_display = f"[-] {pnl_str}"
+            else:
+                pnl_display = pnl_str
+
+            print(f"  #{pid:<4} {ticker:<7} "
+                  f"{(pos.get('strategy') or '?'):<20} "
+                  f"${entry:>6.2f} "
+                  f"${stop:>6.2f} "
+                  f"${target:>6.2f} "
+                  f"{dte:>4} "
+                  f"{pnl_str:>10} "
+                  f"{r_str:>7} "
+                  f"{entry_time:<16}")
+
+        print("  " + "─" * (W - 2))
+        sign = "+" if total_unrealized >= 0 else ""
+        print(f"  Total unrealized P&L: {sign}${total_unrealized:.2f}")
+
+    # ── Today's realized P&L
+    daily_pnl = db.get_daily_pnl()
+    sign = "+" if daily_pnl >= 0 else ""
+    print(f"\n  Today's realized P&L:  {sign}${daily_pnl:.2f}")
+
+    # ── Recent closed trades
+    recent = db.get_closed_positions(limit=5)
+    if recent:
+        print(f"\n  Recent closed trades (last 5):")
+        print(f"  {'Ticker':<8} {'Strategy':<20} {'Entry':>7} {'Exit':>7} "
+              f"{'P&L':>9} {'R':>7} {'Reason':<15} {'Date':<16}")
+        print("  " + "─" * (W - 2))
+        for p in recent:
+            ticker   = p.get("ticker", "?")
+            strategy = (p.get("strategy") or "?")[:18]
+            entry    = p.get("entry_price", 0) or 0
+            exit_p   = p.get("exit_price", 0) or 0
+            pnl      = p.get("realized_pnl", 0) or 0
+            r        = p.get("realized_r", 0) or 0
+            reason   = (p.get("exit_reason") or "?")[:13]
+            date     = (p.get("exit_time") or "")[:16]
+            sign     = "+" if pnl >= 0 else ""
+            print(f"  {ticker:<8} {strategy:<20} "
+                  f"${entry:>6.2f} ${exit_p:>6.2f} "
+                  f"{sign}${abs(pnl):>7.2f} "
+                  f"{r:>+7.2f}R "
+                  f"{reason:<15} {date:<16}")
+
+    # ── Overall performance
     perf = db.get_performance_summary()
-    if perf.get("total_trades"):
-        wr = perf.get("winners", 0) / max(perf.get("total_trades", 1), 1) * 100
-        print(f"\n  Performance ({perf.get('total_trades')} closed trades):")
-        print(f"    Win rate:   {wr:.1f}%")
-        print(f"    Avg R:      {perf.get('avg_r', 0):.3f}R")
-        print(f"    Total P&L:  ${perf.get('total_pnl', 0):+,.2f}")
-        print(f"    Best:       {perf.get('best_r', 0):.2f}R")
-        print(f"    Worst:      {perf.get('worst_r', 0):.2f}R")
+    total = perf.get("total_trades", 0)
+    if total:
+        wr   = perf.get("winners", 0) / max(total, 1) * 100
+        print(f"\n  All-time performance ({total} closed trades):")
+        print(f"    Win rate:    {wr:.1f}%  "
+              f"({'profitable' if wr >= 50 else 'needs work'})")
+        print(f"    Avg R:       {perf.get('avg_r', 0):+.3f}R")
+        print(f"    Total P&L:   ${perf.get('total_pnl', 0):+,.2f}")
+        print(f"    Best trade:  {perf.get('best_r', 0):+.2f}R")
+        print(f"    Worst trade: {perf.get('worst_r', 0):+.2f}R")
+    else:
+        print(f"\n  No closed trades yet.")
 
-    print(f"\n  Agent:")
-    print(f"    Enter model updates: {agent.enter_model.n_updates}")
-    print(f"    Exit model updates:  {agent.exit_model.n_updates}")
-    print(f"    Enter mean reward:   {agent.enter_model.mean_reward:.3f}R")
-    print(f"    Exit mean reward:    {agent.exit_model.mean_reward:.3f}R")
-    print()
+    # ── Cooldowns
+    with db.get_connection() as conn:
+        cds = conn.execute(
+            "SELECT ticker, cooldown_until FROM cooldowns "
+            "WHERE cooldown_until > ? ORDER BY cooldown_until",
+            (datetime.now().isoformat(),)
+        ).fetchall()
+    if cds:
+        print(f"\n  Active cooldowns:")
+        for cd in cds:
+            until = cd["cooldown_until"][:16]
+            print(f"    {cd['ticker']:<8} until {until}")
+
+    # ── Agent
+    print(f"\n  Agent learning:")
+    print(f"    Enter model: {agent.enter_model.n_updates} updates  "
+          f"mean reward {agent.enter_model.mean_reward:+.3f}R")
+    print(f"    Exit model:  {agent.exit_model.n_updates} updates  "
+          f"mean reward {agent.exit_model.mean_reward:+.3f}R")
+    if agent.enter_model.n_updates < 10:
+        remaining = 10 - agent.enter_model.n_updates
+        print(f"    ({remaining} more closed trades before learning activates)")
+
+    print("\n" + "═" * W + "\n")
 
 
 # =============================================================================

@@ -770,3 +770,14 @@
 2026-03-27 20:47:56,553 [INFO] run: Running options scanner on 15 tickers...
 2026-03-27 20:49:46,260 [INFO] run: Scanner complete: 15 scanned, 2 meet threshold
 2026-03-27 20:49:46,263 [INFO] run: Tick 35: Scanner refreshed — regime=RISK_OFF VIX=31.0 2 valid candidates
+2026-03-27 20:53:36,044 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-27 20:53:36,264 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-27 20:53:36,648 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-27 20:53:46,293 [WARNING] notifier: Windows toast failed: No usable implementation found!
+2026-03-27 20:53:46,294 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
+2026-03-27 20:53:46,294 [INFO] run: Loop stopped after 39 ticks
+2026-03-27 20:54:28,894 [INFO] database: Database initialized at ./scanner_data.db
+2026-03-27 20:54:28,894 [INFO] position_tracker: PositionTracker initialized — 0 open positions restored
+2026-03-27 20:54:28,894 [INFO] rl_agent: Agent weights loaded: enter_weights (2 updates, mean_R=1.358)
+2026-03-27 20:54:28,895 [INFO] rl_agent: Agent weights loaded: exit_weights (2 updates, mean_R=1.358)
+2026-03-27 20:54:28,895 [INFO] rl_agent: DecisionAgent initialized — enter_model: 2 updates, exit_model: 2 updates
