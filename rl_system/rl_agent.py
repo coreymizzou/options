@@ -225,7 +225,14 @@ class LinearBandit:
         self._reward_history.append(reward)
         if len(self._reward_history) > 200:
             self._reward_history = self._reward_history[-200:]
-        self.mean_reward = float(np.mean(self._reward_history))
+        # Exponentially weighted mean — recent trades matter more than old ones
+        # alpha=0.1 means most recent trade has 10x more weight than oldest
+        if len(self._reward_history) == 1:
+            self.mean_reward = float(reward)
+        else:
+            self.mean_reward = float(
+                0.9 * self.mean_reward + 0.1 * reward
+            )
 
     def top_features(self, features: np.ndarray, n: int = 3) -> List[str]:
         """Return names of the n features most contributing to current score."""
@@ -236,10 +243,7 @@ class LinearBandit:
             name = FEATURE_NAMES[i] if i < len(FEATURE_NAMES) else f"feat_{i}"
             contrib = contributions[i]
             direction = "↑" if contrib > 0 else "↓"
-            reasons.append(
-                f"{name}: {FEATURE_NAMES[i] if i < len(FEATURE_NAMES) else name} "
-                f"{direction} {abs(contrib):.3f}"
-            )
+            reasons.append(f"{name} {direction} {abs(contrib):.3f}")
         return reasons
 
     def _load(self):
@@ -451,6 +455,7 @@ class DecisionAgent:
         self.exit_model  = LinearBandit("exit_weights")
         self._tick_count = 0
         self._exploration_rate = AGENT_EXPLORATION_RATE
+        self._last_was_explore = False  # True when last score_entry used random explore
         logger.info(
             f"DecisionAgent initialized — "
             f"enter_model: {self.enter_model.n_updates} updates, "
@@ -491,9 +496,14 @@ class DecisionAgent:
         final_conf = (1 - blend_w) * rule_score + blend_w * learned_conf
 
         # Exploration: occasionally randomize to gather diverse data
-        if random.random() < self._exploration_rate and n_updates < 50:
+        # Set _exploring flag so caller can suppress user-facing alerts
+        self._last_was_explore = False
+        # Decay exploration rate as agent learns more
+        decayed_rate = max(AGENT_EXPLORATION_RATE * (0.5 ** (n_updates / 25.0)), 0.01)
+        if random.random() < decayed_rate and n_updates < 50:
             final_conf = random.uniform(0.3, 0.8)
             rule_reasons = [f"[EXPLORE] Random confidence for learning diversity"] + rule_reasons
+            self._last_was_explore = True
 
         # Feature importance from learned model
         learned_reasons = []

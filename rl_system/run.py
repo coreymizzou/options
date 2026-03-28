@@ -659,10 +659,12 @@ def evaluate_open_positions(
             result = tracker.close_position(position_id, confirmed_exit_price, hard_reason)
             realized_r = result.get("realized_r", 0)
 
-            # Update agent
+            # Update agent — inject regime into entry snapshot so
+            # regime_score feature is populated correctly
             entry_snapshot = json.loads(
                 position.get("raw_scanner_data") or "{}"
             )
+            entry_snapshot["regime_data"] = regime
             agent.update_on_close(
                 position=position,
                 exit_reason=hard_reason,
@@ -693,7 +695,7 @@ def evaluate_open_positions(
             try:
                 entry_dt = datetime.fromisoformat(entry_time)
                 secs_held = (datetime.now() - entry_dt).total_seconds()
-                if secs_held < 300:  # 5 minute grace period
+                if secs_held < 600:  # 10 minute grace period — matches hard exit rule
                     in_grace_period = True
             except Exception:
                 pass
@@ -701,7 +703,7 @@ def evaluate_open_positions(
         if in_grace_period:
             action     = "HOLD"
             confidence = 0.0
-            reasons    = ["Grace period — position too new to evaluate (< 5 min)"]
+            reasons    = ["Grace period — position too new to evaluate (< 10 min)"]
         else:
             action, confidence, reasons = agent.score_exit(position, snapshot, ticks)
 
@@ -758,20 +760,22 @@ def evaluate_open_positions(
                 reason="AGENT_EXIT"
             )
 
-            # If user closed it, update agent and skip rest of loop for this position
+            # If user closed it, update agent using ACTUAL realized_r from close
             if closed:
                 _clear_price_cache(position_id)
-                result = {
-                    "realized_pnl": tracker.unrealized_pnl(position_id, current_option_price)
-                    if position_id in tracker.open_positions else
-                    snapshot.get("unrealized_pnl", 0),
-                    "realized_r": snapshot.get("unrealized_r", 0)
-                }
+                # ask_close_position already called tracker.close_position()
+                # Get the realized_r that was recorded — not the snapshot estimate
+                closed_pos = db.get_position_by_id(position_id)
+                actual_realized_r = (
+                    closed_pos.get("realized_r", 0)
+                    if closed_pos else snapshot.get("unrealized_r", 0)
+                )
                 entry_snap = json.loads(position.get("raw_scanner_data") or "{}")
+                entry_snap["regime_data"] = regime
                 agent.update_on_close(
                     position=position,
                     exit_reason="AGENT_EXIT",
-                    realized_r=snapshot.get("unrealized_r", 0),
+                    realized_r=actual_realized_r,
                     entry_market_snapshot=build_market_snapshot(entry_snap),
                     exit_market_snapshot=snapshot,
                     ticks_held=_ticks_held(position),
@@ -791,6 +795,7 @@ def evaluate_open_positions(
                 "reasons":        _json_dumps(reasons[:5]),
                 "market_snapshot": _json_dumps(snapshot),
                 "notified_user":  1,
+                "acted_upon":     1 if closed else 0,
                 "position_id":    position_id
             })
 
@@ -855,11 +860,17 @@ def evaluate_new_candidates(
 
         key = f"entry_{ticker}"
         changed = action_state.has_changed(key, action)
+        _just_tracked = False   # initialize here — set True if user confirms fill
+
+        # Suppress alerts during exploration ticks — random confidence
+        # should not fire user-facing notifications
+        is_explore_tick = getattr(agent, "_last_was_explore", False)
 
         should_notify = (
             changed and
             action == "ENTER" and
-            confidence >= cfg.NOTIFY_CONFIDENCE_THRESHOLD
+            confidence >= cfg.NOTIFY_CONFIDENCE_THRESHOLD and
+            not is_explore_tick
         )
 
         if should_notify:
@@ -948,8 +959,10 @@ def evaluate_new_candidates(
                 }
             )
 
-        # Only update action state if we didn't just track — tracking already set it to HOLD
-        if not (should_notify and _just_tracked if should_notify else False):
+        # Only update action state if we didn't already handle it above
+        # If we notified (should_notify=True), state was already set inside the block
+        # If exploration tick, don't update state — real signal may fire next tick
+        if not should_notify and not is_explore_tick:
             action_state.update(key, action, confidence)
 
         if DEBUG_MODE or (changed and action == "ENTER"):
