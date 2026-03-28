@@ -1124,6 +1124,48 @@ def _cmd_delete_position(position_id: int):
     print(f"  (No cooldown set — this was an unfilled order)")
 
 
+def _cmd_reset(keep_weights: bool = True):
+    """
+    Clear trading data from the database.
+    keep_weights=True  → clears positions, snapshots, cooldowns, recommendations
+                         but keeps agent weights (learning preserved)
+    keep_weights=False → wipes everything including agent weights (full fresh start)
+    """
+    label = "soft reset (keeping agent weights)" if keep_weights else "FULL reset (wiping everything)"
+    print(f"\n  About to perform {label}.")
+    print(f"  This will clear:")
+    print(f"    - All positions (open and closed)")
+    print(f"    - All tick snapshots")
+    print(f"    - All recommendations")
+    print(f"    - All cooldowns")
+    print(f"    - Trade journal")
+    if not keep_weights:
+        print(f"    - Agent weights (learning starts over)")
+    print()
+
+    confirm = input("  Type 'yes' to confirm: ").strip().lower()
+    if confirm != "yes":
+        print("  Cancelled.")
+        return
+
+    with db.get_connection() as conn:
+        conn.execute("DELETE FROM positions")
+        conn.execute("DELETE FROM tick_snapshots")
+        conn.execute("DELETE FROM recommendations")
+        conn.execute("DELETE FROM cooldowns")
+        conn.execute("DELETE FROM trade_journal")
+        conn.execute("DELETE FROM system_state")
+        if not keep_weights:
+            conn.execute("DELETE FROM agent_weights")
+
+    print(f"  ✓ Reset complete.")
+    if keep_weights:
+        print(f"  Agent weights preserved — learning continues from where it left off.")
+    else:
+        print(f"  Full fresh start — agent weights cleared.")
+    print(f"  Run --status to confirm.")
+
+
 def print_status(tracker: PositionTracker, agent: DecisionAgent):
     """Print full system status including live P&L on open positions."""
     W = 68
@@ -1296,6 +1338,10 @@ def main():
                         help="Remove ALL open positions (use after manual close in ThinkorSwim)")
     parser.add_argument("--delete",  type=int, metavar="ID",
                         help="Delete a position entirely (no record kept — use for unfilled orders)")
+    parser.add_argument("--reset",   action="store_true",
+                        help="Clear all positions, snapshots, cooldowns and recommendations (keeps agent weights)")
+    parser.add_argument("--reset-all", action="store_true",
+                        help="Wipe entire database including agent weights — full fresh start")
     args = parser.parse_args()
 
     if args.debug:
@@ -1329,6 +1375,14 @@ def main():
 
     if args.delete:
         _cmd_delete_position(args.delete)
+        return
+
+    if args.reset:
+        _cmd_reset(keep_weights=True)
+        return
+
+    if args.reset_all:
+        _cmd_reset(keep_weights=False)
         return
 
     # ── Startup log

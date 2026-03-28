@@ -781,3 +781,13 @@
 2026-03-27 20:54:28,894 [INFO] rl_agent: Agent weights loaded: enter_weights (2 updates, mean_R=1.358)
 2026-03-27 20:54:28,895 [INFO] rl_agent: Agent weights loaded: exit_weights (2 updates, mean_R=1.358)
 2026-03-27 20:54:28,895 [INFO] rl_agent: DecisionAgent initialized — enter_model: 2 updates, exit_model: 2 updates
+2026-03-27 20:55:53,851 [INFO] database: Database initialized at ./scanner_data.db
+2026-03-27 20:55:53,851 [INFO] position_tracker: PositionTracker initialized — 0 open positions restored
+2026-03-27 20:55:53,851 [INFO] rl_agent: Agent weights loaded: enter_weights (2 updates, mean_R=1.358)
+2026-03-27 20:55:53,852 [INFO] rl_agent: Agent weights loaded: exit_weights (2 updates, mean_R=1.358)
+2026-03-27 20:55:53,852 [INFO] rl_agent: DecisionAgent initialized — enter_model: 2 updates, exit_model: 2 updates
+2026-03-27 20:56:15,164 [INFO] database: Database initialized at ./scanner_data.db
+2026-03-27 20:56:15,165 [INFO] position_tracker: PositionTracker initialized — 0 open positions restored
+2026-03-27 20:56:15,165 [INFO] rl_agent: Agent weights loaded: enter_weights (2 updates, mean_R=1.358)
+2026-03-27 20:56:15,165 [INFO] rl_agent: Agent weights loaded: exit_weights (2 updates, mean_R=1.358)
+2026-03-27 20:56:15,165 [INFO] rl_agent: DecisionAgent initialized — enter_model: 2 updates, exit_model: 2 updates
