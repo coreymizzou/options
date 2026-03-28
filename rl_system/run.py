@@ -1149,11 +1149,13 @@ def _cmd_reset(keep_weights: bool = True):
         return
 
     with db.get_connection() as conn:
-        conn.execute("DELETE FROM positions")
+        # Delete in dependency order — children before parents
+        # to avoid foreign key constraint violations
         conn.execute("DELETE FROM tick_snapshots")
         conn.execute("DELETE FROM recommendations")
-        conn.execute("DELETE FROM cooldowns")
         conn.execute("DELETE FROM trade_journal")
+        conn.execute("DELETE FROM positions")
+        conn.execute("DELETE FROM cooldowns")
         conn.execute("DELETE FROM system_state")
         if not keep_weights:
             conn.execute("DELETE FROM agent_weights")
