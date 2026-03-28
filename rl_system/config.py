@@ -24,6 +24,21 @@ CLOSE_BEFORE_DTE     = 7          # Force-close any position within this many DT
 COOLDOWN_HOURS       = 24         # Hours after close before re-entering same ticker
 NO_REENTRY_WHILE_OPEN = True      # Block new entry if position already open on ticker
 
+# ─── Time-of-Day Filter ──────────────────────────────────────────────────────
+# Suppress new ENTER recommendations outside these ET hours
+# Options spreads have wide bid/ask in first 30min and last 15min of session
+# Hard exits (stop/target/DTE) always fire regardless of time
+MARKET_OPEN_HOUR     = 10         # No new entries before 10:00am ET
+MARKET_OPEN_MINUTE   = 0
+MARKET_CLOSE_HOUR    = 15         # No new entries after 3:30pm ET
+MARKET_CLOSE_MINUTE  = 30
+ENFORCE_MARKET_HOURS = True       # Set False to disable filter (e.g. for testing)
+
+# ─── Action State Expiry ─────────────────────────────────────────────────────
+# How long before a previously seen action state is considered stale
+# Prevents yesterday's ENTER state from suppressing today's fresh signal
+ACTION_STATE_EXPIRY_HOURS = 20    # States older than this are ignored (reset to None)
+
 # ─── 60-Second Loop ──────────────────────────────────────────────────────────
 LOOP_INTERVAL_SECONDS = 60        # How often the main loop ticks
 SCANNER_RUN_INTERVAL  = 300       # How often to re-run the full options scanner (seconds)
@@ -83,6 +98,49 @@ DEBUG_MODE           = False     # Extra verbose output when True
 LOG_EVERY_TICK       = True      # Log internal state every tick (to DB, not terminal)
 LOG_DIR              = "./logs"  # Directory for log files
 DB_PATH              = "./scanner_data.db"  # SQLite database path
+
+# ─── Earnings Calendar ───────────────────────────────────────────────────────
+EARNINGS_WARN_DAYS   = 5         # Warn if earnings within this many days
+EARNINGS_BLOCK_DAYS  = 2         # Block new entries if earnings within this many days
+                                  # NOTE: WARN_DAYS must be > BLOCK_DAYS or warn never fires
+EARNINGS_CHECK_ENABLED = True    # Set False to disable earnings check
+
+# ─── Sector Correlation ───────────────────────────────────────────────────────
+MAX_SAME_SECTOR_POSITIONS = 2    # Max open positions in the same sector
+MAX_SAME_DIRECTION_POSITIONS = 2 # Max open positions in the same direction (BULLISH/BEARISH)
+SECTOR_CORRELATION_ENABLED = True
+
+# Sector mapping for watchlist tickers
+# Used to detect when multiple open positions are correlated
+SECTOR_MAP = {
+    "NVDA":  "semiconductors",
+    "AMD":   "semiconductors",
+    "MU":    "semiconductors",
+    "AAPL":  "mega_tech",
+    "MSFT":  "mega_tech",
+    "GOOGL": "mega_tech",
+    "META":  "mega_tech",
+    "AMZN":  "mega_tech",
+    "CRWD":  "cybersecurity",
+    "CRM":   "cloud_software",
+    "PLTR":  "cloud_software",
+    "NFLX":  "media_tech",
+    "TSLA":  "ev_auto",
+    "COIN":  "crypto_tech",
+    "MSTR":  "crypto_tech",
+    "SPY":   "index",
+    "QQQ":   "index",
+    # ── New additions ─────────────────────────────────
+    "GS":    "financials",    # Goldman — Fed/rate sensitive, high IV
+    "XOM":   "energy",        # ExxonMobil — oil/geo driven, uncorrelated to tech
+    "GLD":   "commodities",   # Gold ETF — RISK_OFF hedge, rallies when equities sell
+    "MELI":  "intl_growth",   # MercadoLibre — Latin American e-commerce, different catalyst set
+}
+
+# ─── OI Change Detection ─────────────────────────────────────────────────────
+OI_CHANGE_ENABLED    = True      # Compare OI to previous scan to validate flow
+OI_INCREASE_REQUIRED = True      # Require OI to increase to confirm opening flow
+                                  # Set False to treat all flow as valid
 
 # ─── Phase 2 Hooks (not active yet) ──────────────────────────────────────────
 # Set to True when broker integration is ready

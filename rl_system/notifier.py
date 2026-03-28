@@ -31,19 +31,7 @@ logger = logging.getLogger(__name__)
 # Using 'winotify' — more stable than win10toast on modern Windows + Python 3.10+
 # Install: pip install winotify
 _TOAST_AVAILABLE = False
-try:
-    from winotify import Notification, audio
-    _TOAST_AVAILABLE = True
-except ImportError:
-    try:
-        # Fallback: plyer also works cross-platform
-        from plyer import notification as plyer_notification
-        _TOAST_AVAILABLE = True
-        _USING_PLYER = True
-    except ImportError:
-        _USING_PLYER = False
-
-_USING_PLYER = False  # reset — set properly below
+_USING_PLYER = False
 try:
     from winotify import Notification, audio
     _TOAST_AVAILABLE = True

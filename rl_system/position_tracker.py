@@ -124,28 +124,49 @@ class PositionTracker:
         contracts   = position.get("contracts", 1)
 
         # ── Price sanity check
-        # If the fetched price is more than 3x the entry price or less than
-        # 1/10th of it, something is wrong with the data — skip hard rules
-        # this tick rather than firing a false stop or target
+        # If the fetched price is suspiciously far from entry price,
+        # something is wrong with the data — skip hard rules this tick.
+        #
+        # Thresholds chosen carefully:
+        #   10-30 min upper: > 2.2x (120% gain per tick) — wrong contract data
+        #   10-30 min lower: < 0.15x (85% loss per tick) — bad data
+        #   30+ min upper:   > 3.0x — wider window for larger real moves
+        #   30+ min lower:   < 0.10x — wider window for larger real drops
+        # TARGET_HIT fires at 2.0x (100% gain) — fits within 2.2x limit with margin
+        # Reuse mins_held already computed above in the grace period check
+        mins_held = 0
+        try:
+            mins_held = (datetime.now() - entry_dt).total_seconds() / 60
+        except Exception:
+            pass
+
         if entry_price and entry_price > 0:
             ratio = current_option_price / entry_price
-            if ratio > 3.0 or ratio < 0.10:
+            # Thresholds by time held:
+            # 0-10 min:  grace period handles this — hard rules already suppressed
+            # 10-30 min: tight window — 120% max gain, 85% max loss per tick
+            # 30+ min:   wider window — 200% max gain, 90% max loss per tick
+            # These thresholds were chosen so legitimate target hits pass
+            # while wrong-contract prices (which can be 150-200% off) are caught
+            upper_limit = 3.0 if mins_held > 30 else 2.2
+            lower_limit = 0.10 if mins_held > 30 else 0.15
+            if ratio > upper_limit or ratio < lower_limit:
                 logger.warning(
                     f"Suspicious price for {position.get('ticker')}: "
                     f"entry=${entry_price} current=${current_option_price} "
-                    f"ratio={ratio:.2f} — skipping hard rules this tick"
+                    f"ratio={ratio:.2f} mins_held={mins_held:.1f} "
+                    f"limits=[{lower_limit},{upper_limit}] — skipping hard rules this tick"
                 )
                 return False, ""
 
         # Current value
         current_value = current_option_price * 100 * contracts
-        pnl           = current_value - entry_cost
         pct_of_entry  = current_option_price / entry_price if entry_price > 0 else 1
 
         # 1. Stop loss
         if pct_of_entry <= (1 - STOP_LOSS_PCT):
             loss = entry_cost - current_value
-            return True, f"STOP_LOSS: down {(1-pct_of_entry)*100:.0f}% (${loss:.2f})"
+            return True, f"STOP_LOSS: down {(1-pct_of_entry)*100:.0f}% (-${loss:.2f})"
 
         # 2. Profit target
         if pct_of_entry >= (1 + PROFIT_TARGET_PCT):
@@ -227,7 +248,12 @@ class PositionTracker:
         }
 
         position_id = db.insert_position(data)
-        self._open[position_id] = db.get_position_by_id(position_id)
+        loaded = db.get_position_by_id(position_id)
+        if loaded:
+            self._open[position_id] = loaded
+        else:
+            logger.warning(f"Could not reload position {position_id} from DB after insert")
+            return None
 
         db.log_journal_event(
             "POSITION_OPENED",

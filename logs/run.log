@@ -806,3 +806,54 @@
 2026-03-27 21:00:38,462 [INFO] rl_agent: Agent weights loaded: enter_weights (2 updates, mean_R=1.358)
 2026-03-27 21:00:38,462 [INFO] rl_agent: Agent weights loaded: exit_weights (2 updates, mean_R=1.358)
 2026-03-27 21:00:38,462 [INFO] rl_agent: DecisionAgent initialized — enter_model: 2 updates, exit_model: 2 updates
+2026-03-27 22:29:44,668 [INFO] database: Database initialized at ./scanner_data.db
+2026-03-27 22:29:44,668 [INFO] position_tracker: PositionTracker initialized — 0 open positions restored
+2026-03-27 22:29:44,668 [INFO] rl_agent: Agent weights loaded: enter_weights (2 updates, mean_R=1.358)
+2026-03-27 22:29:44,669 [INFO] rl_agent: Agent weights loaded: exit_weights (2 updates, mean_R=1.358)
+2026-03-27 22:29:44,669 [INFO] rl_agent: DecisionAgent initialized — enter_model: 2 updates, exit_model: 2 updates
+2026-03-27 22:29:56,546 [INFO] database: Database initialized at ./scanner_data.db
+2026-03-27 22:29:56,546 [INFO] position_tracker: PositionTracker initialized — 0 open positions restored
+2026-03-27 22:29:56,546 [INFO] rl_agent: Agent weights loaded: enter_weights (2 updates, mean_R=1.358)
+2026-03-27 22:29:56,547 [INFO] rl_agent: Agent weights loaded: exit_weights (2 updates, mean_R=1.358)
+2026-03-27 22:29:56,547 [INFO] rl_agent: DecisionAgent initialized — enter_model: 2 updates, exit_model: 2 updates
+2026-03-27 22:29:56,550 [WARNING] notifier: Windows toast failed: No usable implementation found!
+2026-03-27 22:29:56,550 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
+2026-03-27 22:29:56,551 [INFO] run: Starting 60-second loop (PAPER mode)
+2026-03-27 22:29:57,742 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 22:31:00,923 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-27 22:31:44,480 [INFO] run: Scanner complete: 15 scanned, 2 meet threshold
+2026-03-27 22:31:44,480 [INFO] run: Tick 1: Scanner refreshed — regime=RISK_OFF VIX=31.0 2 valid candidates
+2026-03-27 22:31:44,485 [INFO] run:   COIN skipped — outside market hours entry window (10am-3:30pm ET)
+2026-03-27 22:31:44,486 [INFO] run:   CRM skipped — outside market hours entry window (10am-3:30pm ET)
+2026-03-27 22:31:44,490 [WARNING] notifier: Windows toast failed: No usable implementation found!
+2026-03-27 22:31:44,490 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
+2026-03-27 22:31:44,490 [INFO] run: Loop stopped after 1 ticks
+2026-03-27 22:33:16,779 [INFO] database: Database initialized at ./scanner_data.db
+2026-03-27 22:33:16,779 [INFO] position_tracker: PositionTracker initialized — 0 open positions restored
+2026-03-27 22:33:16,779 [INFO] rl_agent: Agent weights loaded: enter_weights (2 updates, mean_R=1.358)
+2026-03-27 22:33:16,779 [INFO] rl_agent: Agent weights loaded: exit_weights (2 updates, mean_R=1.358)
+2026-03-27 22:33:16,779 [INFO] rl_agent: DecisionAgent initialized — enter_model: 2 updates, exit_model: 2 updates
+2026-03-27 22:33:16,873 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
+2026-03-27 22:33:16,874 [INFO] run: Starting 60-second loop (PAPER mode)
+2026-03-27 22:33:18,039 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 22:35:04,597 [INFO] run: Scanner complete: 15 scanned, 2 meet threshold
+2026-03-27 22:35:04,599 [INFO] run: Tick 1: Scanner refreshed — regime=RISK_OFF VIX=31.0 2 valid candidates
+2026-03-27 22:35:04,601 [INFO] run:   COIN skipped — outside market hours entry window (10am-3:30pm ET)
+2026-03-27 22:35:04,601 [INFO] run:   CRM skipped — outside market hours entry window (10am-3:30pm ET)
+2026-03-27 22:35:04,602 [INFO] run:   COIN skipped — outside market hours entry window (10am-3:30pm ET)
+2026-03-27 22:35:04,602 [INFO] run:   CRM skipped — outside market hours entry window (10am-3:30pm ET)
+2026-03-27 22:36:04,609 [INFO] run:   COIN skipped — outside market hours entry window (10am-3:30pm ET)
+2026-03-27 22:36:04,611 [INFO] run:   CRM skipped — outside market hours entry window (10am-3:30pm ET)
+2026-03-27 22:37:04,613 [INFO] run:   COIN skipped — outside market hours entry window (10am-3:30pm ET)
+2026-03-27 22:37:04,615 [INFO] run:   CRM skipped — outside market hours entry window (10am-3:30pm ET)
+2026-03-27 22:38:04,616 [INFO] run:   COIN skipped — outside market hours entry window (10am-3:30pm ET)
+2026-03-27 22:38:04,617 [INFO] run:   CRM skipped — outside market hours entry window (10am-3:30pm ET)
+2026-03-27 22:39:05,476 [INFO] run: Running options scanner on 15 tickers...
+2026-03-27 22:39:31,850 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-27 22:39:31,978 [INFO] run: Shutdown signal received — finishing current tick...
+2026-03-27 22:40:51,691 [INFO] run: Scanner complete: 15 scanned, 2 meet threshold
+2026-03-27 22:40:51,693 [INFO] run: Tick 6: Scanner refreshed — regime=RISK_OFF VIX=31.0 2 valid candidates
+2026-03-27 22:40:51,695 [INFO] run:   COIN skipped — outside market hours entry window (10am-3:30pm ET)
+2026-03-27 22:40:51,696 [INFO] run:   CRM skipped — outside market hours entry window (10am-3:30pm ET)
+2026-03-27 22:40:51,701 [INFO] notifier: Alert sent: INFO SYSTEM conf=1.00 force=False
+2026-03-27 22:40:51,702 [INFO] run: Loop stopped after 6 ticks

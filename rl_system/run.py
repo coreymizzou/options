@@ -39,8 +39,15 @@ sys.path.insert(0, str(SCANNER_DIR))
 # ─── Local imports ────────────────────────────────────────────────────────────
 import config as cfg
 import database as db
+# zoneinfo imported inside is_market_hours_for_entry() for Python 3.9+ compatibility
 from database import _dumps as _json_dumps  # numpy-safe json encoder
 from rl_agent import DecisionAgent
+
+# ─── OI cache for change detection (Tier 2 feature) ─────────────────────────
+_oi_cache: Dict[str, int] = {}   # "TICKER:strike:exp:type" → last known OI
+# Earnings cache to avoid hitting API every tick
+_earnings_cache: Dict[str, Optional[str]] = {}   # ticker → next earnings date ISO or None
+_earnings_cache_time: Dict[str, float] = {}       # ticker → timestamp of last fetch
 from position_tracker import PositionTracker
 from notifier import (
     Alert, send, notify_entry, notify_exit,
@@ -72,6 +79,49 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger("run")
+
+
+# =============================================================================
+#  TIME-OF-DAY FILTER
+# =============================================================================
+
+def is_market_hours_for_entry() -> bool:
+    """
+    Returns True if current ET time is within the allowed entry window.
+    Hard exits (stop/target/DTE) always fire regardless — this only
+    suppresses new ENTER recommendations.
+
+    Window: 10:00am ET to 3:30pm ET (configurable in config.py)
+    Outside this window options spreads have:
+      - Wider bid/ask (costs more to fill)
+      - Lower liquidity (harder to exit)
+      - Erratic prints (first 30min after open)
+    """
+    if not cfg.ENFORCE_MARKET_HOURS:
+        return True
+
+    try:
+        try:
+            from zoneinfo import ZoneInfo          # Python 3.9+
+        except ImportError:
+            from backports.zoneinfo import ZoneInfo  # pip install backports.zoneinfo
+        et = ZoneInfo("America/New_York")
+        now_et = datetime.now(et)
+        # Monday=0 ... Friday=4, Saturday=5, Sunday=6
+        if now_et.weekday() >= 5:
+            return False   # weekend — market closed
+        open_time  = now_et.replace(
+            hour=cfg.MARKET_OPEN_HOUR, minute=cfg.MARKET_OPEN_MINUTE,
+            second=0, microsecond=0
+        )
+        close_time = now_et.replace(
+            hour=cfg.MARKET_CLOSE_HOUR, minute=cfg.MARKET_CLOSE_MINUTE,
+            second=0, microsecond=0
+        )
+        return open_time <= now_et <= close_time
+    except Exception as e:
+        logger.warning(f"Market hours check failed: {e} — defaulting to open")
+        return True   # fail open so we don't miss real signals
 
 
 # =============================================================================
@@ -153,27 +203,71 @@ class ActionStateTracker:
     """
     Tracks the last recommended action per position/candidate
     to detect changes and avoid duplicate alerts.
+
+    States expire after ACTION_STATE_EXPIRY_HOURS (default 20h) so that
+    a signal seen yesterday doesn't suppress the same signal today.
     """
     def __init__(self):
         self._last_action: Dict[str, str] = {}
         self._last_confidence: Dict[str, float] = {}
+        self._last_updated: Dict[str, str] = {}   # key → ISO timestamp
         # Restore from DB
         saved = db.get_state("action_state") or {}
-        self._last_action = saved.get("actions", {})
+        self._last_action    = saved.get("actions", {})
         self._last_confidence = saved.get("confidences", {})
+        self._last_updated   = saved.get("updated_at", {})
+        # Expire stale states on startup
+        self._expire_stale()
+
+    def _expire_stale(self):
+        """Remove action states older than ACTION_STATE_EXPIRY_HOURS."""
+        cutoff = datetime.now() - timedelta(hours=cfg.ACTION_STATE_EXPIRY_HOURS)
+        stale = []
+        for key, ts_str in self._last_updated.items():
+            try:
+                ts = datetime.fromisoformat(ts_str)
+                if ts < cutoff:
+                    stale.append(key)
+            except Exception:
+                stale.append(key)   # unparseable timestamp — expire it
+        for key in stale:
+            self._last_action.pop(key, None)
+            self._last_confidence.pop(key, None)
+            self._last_updated.pop(key, None)
+        if stale:
+            logger.info(f"ActionStateTracker: expired {len(stale)} stale state(s)")
 
     def has_changed(self, key: str, new_action: str) -> bool:
+        # Also treat expired states as changed
+        if key in self._last_updated:
+            try:
+                cutoff = datetime.now() - timedelta(hours=cfg.ACTION_STATE_EXPIRY_HOURS)
+                if datetime.fromisoformat(self._last_updated[key]) < cutoff:
+                    return True   # state is stale — treat as changed
+            except Exception:
+                return True
         return self._last_action.get(key) != new_action
 
     def update(self, key: str, action: str, confidence: float):
+        now = datetime.now().isoformat()
         self._last_action[key]     = action
         self._last_confidence[key] = confidence
+        self._last_updated[key]    = now
         db.set_state("action_state", {
             "actions":     self._last_action,
-            "confidences": self._last_confidence
+            "confidences": self._last_confidence,
+            "updated_at":  self._last_updated
         })
 
     def get_last(self, key: str) -> Optional[str]:
+        # Return None if state is stale
+        if key in self._last_updated:
+            try:
+                cutoff = datetime.now() - timedelta(hours=cfg.ACTION_STATE_EXPIRY_HOURS)
+                if datetime.fromisoformat(self._last_updated[key]) < cutoff:
+                    return None
+            except Exception:
+                return None
         return self._last_action.get(key)
 
 
@@ -324,6 +418,9 @@ def ask_track_position(scanner_result: Dict, tracker: PositionTracker,
 
     try:
         fill_price = float(fill_str) if fill_str else suggested_entry
+        if fill_price <= 0:
+            print(f"  Invalid price (must be > 0) — using suggested ${suggested_entry}")
+            fill_price = suggested_entry
     except ValueError:
         fill_price = suggested_entry
         print(f"  Could not parse — using suggested ${suggested_entry}")
@@ -383,7 +480,11 @@ def ask_track_position(scanner_result: Dict, tracker: PositionTracker,
     }
     position_id = _insert_pos(_pos_data)
     if position_id:
-        tracker._open[position_id] = db.get_position_by_id(position_id)
+        loaded = db.get_position_by_id(position_id)
+        if loaded:
+            tracker._open[position_id] = loaded
+        else:
+            logger.warning(f"Could not reload position {position_id} from DB after insert")
         stop_price   = round(fill_price * (1 - cfg.STOP_LOSS_PCT), 2)
         target_price = round(fill_price * (1 + cfg.PROFIT_TARGET_PCT), 2)
         print(f"  ✓ {ticker} tracked — entry=${fill_price} "
@@ -437,6 +538,9 @@ def ask_close_position(position_id: int, position: Dict, tracker: PositionTracke
 
     try:
         exit_price = float(fill_str) if fill_str else current_price
+        if exit_price <= 0:
+            print(f"  Invalid price (must be > 0) — using suggested ${current_price:.2f}")
+            exit_price = current_price
     except ValueError:
         exit_price = current_price
         print(f"  Could not parse price — using ${current_price:.2f}")
@@ -466,7 +570,7 @@ def get_current_option_price(position: Dict) -> Optional[float]:
     Fetch the actual current mid price for a specific open contract
     using Tradier or yfinance.
 
-    Caches results for ~55 seconds to avoid rate limiting Tradier.
+    Caches results for ~30 seconds to avoid rate limiting Tradier.
     Falls back to entry_price if live data is unavailable.
     """
     import os
@@ -547,6 +651,213 @@ def get_current_option_price(position: Dict) -> Optional[float]:
     # ── Last resort: return entry price so nothing breaks
     logger.debug(f"Could not fetch live price for {ticker} {strike} {expiration} — using entry price")
     return entry_price
+
+
+# =============================================================================
+#  TIER 2 FEATURES — EARNINGS / SECTOR / OI
+# =============================================================================
+
+def get_next_earnings_date(ticker: str) -> Optional[str]:
+    """
+    Return the next earnings date for a ticker as an ISO date string,
+    or None if unknown or more than 60 days away.
+
+    Uses Tradier fundamentals API first, yfinance as fallback.
+    Results cached for 6 hours to avoid hammering the API.
+    """
+    import time
+
+    # Check cache — refresh every 6 hours
+    now_ts = time.time()
+    if ticker in _earnings_cache_time:
+        if now_ts - _earnings_cache_time[ticker] < 21600:  # 6 hours
+            return _earnings_cache.get(ticker)
+
+    date_str = None
+
+    # ── Try Tradier fundamentals (beta endpoint)
+    # Note: Tradier's fundamentals/calendars endpoint returns earnings dates
+    # under tables.earnings.report_date — fiscal_year_end is NOT earnings date
+    api_key = os.environ.get("TRADIER_API_KEY", "")
+    if api_key:
+        try:
+            import requests as req
+            r = req.get(
+                "https://api.tradier.com/beta/markets/fundamentals/calendars",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Accept": "application/json"
+                },
+                params={"symbols": ticker},
+                timeout=8
+            )
+            if r.status_code == 200:
+                data = r.json()
+                events = data if isinstance(data, list) else []
+                today = datetime.now().strftime("%Y-%m-%d")
+                for item in events:
+                    tables = item.get("tables", {}) or {}
+                    # Correct path: tables.earnings.report_date
+                    earnings = tables.get("earnings", {}) or {}
+                    report_date = earnings.get("report_date")
+                    if report_date and report_date >= today:
+                        date_str = report_date
+                        break
+                    # Also check corporate_calendars list
+                    corp_cals = tables.get("corporate_calendars") or []
+                    for cal in (corp_cals if isinstance(corp_cals, list) else []):
+                        event_type = (cal.get("event") or "").lower()
+                        cal_date   = cal.get("date") or cal.get("report_date")
+                        if "earn" in event_type and cal_date and cal_date >= today:
+                            date_str = cal_date
+                            break
+                    if date_str:
+                        break
+        except Exception as e:
+            logger.debug(f"Tradier earnings fetch failed for {ticker}: {e}")
+
+    # ── Fallback: yfinance
+    if not date_str:
+        try:
+            import yfinance as yf
+            from datetime import timezone
+            t = yf.Ticker(ticker)
+            dates = t.earnings_dates
+            if dates is not None and not dates.empty:
+                future = dates[dates.index > datetime.now(tz=timezone.utc)]
+                if not future.empty:
+                    # earnings_dates sorted descending — index[0] is nearest upcoming date
+                    next_date = future.index[0]
+                    date_str = next_date.strftime("%Y-%m-%d")
+        except Exception as e:
+            logger.debug(f"yfinance earnings fetch failed for {ticker}: {e}")
+
+    # Cache result
+    _earnings_cache[ticker] = date_str
+    _earnings_cache_time[ticker] = now_ts
+    return date_str
+
+
+def check_earnings_proximity(ticker: str) -> tuple:
+    """
+    Check if ticker has earnings coming up soon.
+    Returns (days_to_earnings: int or None, warning: str or None)
+
+    days_to_earnings = None means no upcoming earnings found.
+    """
+    if not cfg.EARNINGS_CHECK_ENABLED:
+        return None, None
+
+    date_str = get_next_earnings_date(ticker)
+    if not date_str:
+        return None, None
+
+    try:
+        exp_dt = datetime.strptime(date_str, "%Y-%m-%d")
+        days = (exp_dt - datetime.now()).days
+        if days < 0:
+            return None, None   # already passed
+        if days <= cfg.EARNINGS_BLOCK_DAYS:
+            return days, f"EARNINGS IN {days}d — ENTRY BLOCKED (too close to report)"
+        if days <= cfg.EARNINGS_WARN_DAYS:
+            return days, f"EARNINGS IN {days}d — IV crush risk after report"
+        return days, None
+    except Exception:
+        return None, None
+
+
+def check_sector_correlation(
+    ticker: str,
+    direction: str,
+    tracker: PositionTracker
+) -> tuple:
+    """
+    Check if adding this position would create too much sector/direction concentration.
+    Returns (blocked: bool, warning: str or None)
+    """
+    if not cfg.SECTOR_CORRELATION_ENABLED:
+        return False, None
+
+    sector = cfg.SECTOR_MAP.get(ticker.upper(), "unknown")
+    open_positions = list(tracker.open_positions.values())
+
+    # Count same-sector positions
+    same_sector = [
+        p for p in open_positions
+        if cfg.SECTOR_MAP.get(p.get("ticker", "").upper(), "?") == sector
+        and sector != "unknown"
+    ]
+
+    # Count same-direction positions
+    same_direction = [
+        p for p in open_positions
+        if (p.get("direction") or "").upper() == (direction or "").upper()
+        and direction
+    ]
+
+    warnings = []
+
+    if len(same_sector) >= cfg.MAX_SAME_SECTOR_POSITIONS:
+        tickers = [p["ticker"] for p in same_sector]
+        warnings.append(
+            f"Sector concentration: already {len(same_sector)} {sector} positions "
+            f"({', '.join(tickers)}) — adding {ticker} increases correlated risk"
+        )
+
+    if len(same_direction) >= cfg.MAX_SAME_DIRECTION_POSITIONS:
+        tickers = [p["ticker"] for p in same_direction]
+        warnings.append(
+            f"Direction concentration: {len(same_direction)} {direction} positions already open "
+            f"({', '.join(tickers)}) — correlated market exposure"
+        )
+
+    if warnings:
+        return False, " | ".join(warnings)   # warn but don't block
+    return False, None
+
+
+def check_oi_confirms_flow(scanner_result: Dict) -> tuple:
+    """
+    Compare current OI to previous scan OI to determine if flow
+    represents opening or closing positions.
+
+    Opening flow (OI increasing) = new position being established = stronger signal
+    Closing flow (OI flat/decreasing) = existing position being exited = weaker signal
+
+    Returns (is_opening_flow: bool, note: str)
+    """
+    if not cfg.OI_CHANGE_ENABLED:
+        return True, ""
+
+    trade = scanner_result.get("trade", {})
+    main  = trade.get("main_leg", {})
+    ticker = scanner_result.get("ticker", "")
+    strike = main.get("strike")
+    exp    = main.get("exp") or trade.get("exp", "")
+    opt_type = main.get("option_type", "put")
+    oi     = main.get("open_interest") or main.get("oi")
+
+    if not all([ticker, strike, exp, oi]):
+        return True, ""   # can't check — assume valid
+
+    cache_key = f"{ticker}:{strike}:{exp}:{opt_type}"
+    prev_oi   = _oi_cache.get(cache_key)
+
+    # Update cache with current OI
+    _oi_cache[cache_key] = int(oi)
+
+    if prev_oi is None:
+        return True, "OI baseline established (first scan)"
+
+    oi_change = int(oi) - prev_oi
+    pct_change = (oi_change / max(prev_oi, 1)) * 100
+
+    if oi_change > 0:
+        return True, f"OI +{oi_change:,} ({pct_change:+.1f}%) — confirms opening flow"
+    elif oi_change == 0:
+        return not cfg.OI_INCREASE_REQUIRED,                f"OI unchanged — may be closing flow (existing position exiting)"
+    else:
+        return False,                f"OI {oi_change:,} ({pct_change:+.1f}%) — likely CLOSING flow, not new position"
 
 
 # =============================================================================
@@ -853,10 +1164,46 @@ def evaluate_new_candidates(
             logger.info(f"Max positions ({cfg.MAX_CONCURRENT_POSITIONS}) reached — skipping {ticker}")
             break
 
+        # Skip if outside market hours entry window
+        if not is_market_hours_for_entry():
+            logger.info(f"  {ticker} skipped — outside market hours entry window (10am-3:30pm ET)")
+            continue
+
+        # ── Earnings check
+        days_to_earnings, earnings_warning = check_earnings_proximity(ticker)
+        if earnings_warning and "BLOCKED" in earnings_warning:
+            logger.info(f"  {ticker} BLOCKED — {earnings_warning}")
+            continue
+
+        # ── OI change detection — validate flow is opening not closing
+        oi_valid, oi_note = check_oi_confirms_flow(scanner_result)
+
+        # ── Sector / direction correlation check (warn only, not block)
+        direction = scanner_result.get("trade", {}).get("direction", "")
+        _, correlation_warning = check_sector_correlation(ticker, direction, tracker)
+
         snapshot = build_market_snapshot(scanner_result)
 
         # Agent scores the entry
         action, confidence, reasons = agent.score_entry(scanner_result, snapshot)
+
+        # Inject tier 2 signals into reasons so user sees them in the alert
+        tier2_notes = []
+        if earnings_warning:
+            tier2_notes.append(f"⚠ {earnings_warning}")
+        if days_to_earnings and not earnings_warning:
+            tier2_notes.append(f"Earnings in {days_to_earnings}d")
+        if oi_note and oi_note != "OI baseline established (first scan)":
+            tier2_notes.append(f"OI: {oi_note}")
+        if not oi_valid:
+            # Closing flow — reduce confidence
+            confidence = round(confidence * 0.75, 3)
+            tier2_notes.append("⚠ OI suggests closing flow — confidence reduced 25%")
+        if correlation_warning:
+            tier2_notes.append(f"⚠ {correlation_warning}")
+
+        if tier2_notes:
+            reasons = tier2_notes + reasons
 
         key = f"entry_{ticker}"
         changed = action_state.has_changed(key, action)
@@ -1042,6 +1389,9 @@ def _cmd_close_position(tracker: PositionTracker, position_id: int):
     fill_str = input(f"  Exit price (what did you close at?): ").strip()
     try:
         exit_price = float(fill_str)
+        if exit_price <= 0:
+            print(f"  Invalid price (must be > 0) — cancelled")
+            return
     except ValueError:
         print(f"  Invalid price — cancelled")
         return
@@ -1085,6 +1435,9 @@ def _cmd_close_all_positions(tracker: PositionTracker):
 
         try:
             exit_price = float(fill_str)
+            if exit_price <= 0:
+                print(f"  Invalid price (must be > 0) — skipping {ticker}")
+                continue
         except ValueError:
             print(f"  Invalid price — skipping {ticker}")
             continue
@@ -1160,6 +1513,13 @@ def _cmd_reset(keep_weights: bool = True):
     if confirm != "yes":
         print("  Cancelled.")
         return
+
+    # Clear all in-memory caches so stale data doesn't affect new session
+    global _price_cache, _oi_cache, _earnings_cache, _earnings_cache_time
+    _price_cache = {}
+    _oi_cache    = {}
+    _earnings_cache = {}
+    _earnings_cache_time = {}
 
     with db.get_connection() as conn:
         # Delete in dependency order — children before parents
@@ -1320,6 +1680,56 @@ def print_status(tracker: PositionTracker, agent: DecisionAgent):
 
 
 # =============================================================================
+#  TICK STATUS BAR
+# =============================================================================
+
+def _print_tick_bar(tracker: PositionTracker, tick: int, regime: Dict):
+    """
+    Print a compact one-line status bar every tick.
+    Shows time, tick count, regime, market hours status,
+    and a summary of all open positions with live P&L.
+
+    Example:
+      [10:05:22] tick=12 RISK_OFF VIX=31  |  CRWD#1 +$124 +0.25R  |  MU#2 +$47 +0.09R
+    """
+    et_str = ""
+    in_hours = is_market_hours_for_entry()
+    try:
+        try:
+            from zoneinfo import ZoneInfo
+        except ImportError:
+            from backports.zoneinfo import ZoneInfo
+        et = ZoneInfo("America/New_York")
+        et_str = datetime.now(et).strftime("%H:%M ET")
+    except Exception:
+        et_str = datetime.now().strftime("%H:%M")
+
+    regime_str = regime.get("regime", "?") if isinstance(regime, dict) else "?"
+    vix_str    = f"VIX={regime.get('vix', '?')}" if isinstance(regime, dict) else ""
+    hours_str  = "" if in_hours else " [OUTSIDE HOURS]"
+
+    parts = [f"[{et_str}] tick={tick} {regime_str} {vix_str}{hours_str}"]
+
+    if tracker.open_count == 0:
+        parts.append("no open positions")
+    else:
+        for pid, pos in tracker.open_positions.items():
+            ticker    = pos.get("ticker", "?")
+            entry     = pos.get("entry_price", 0) or 0
+            contracts = pos.get("contracts", 1) or 1
+            cur       = get_current_option_price(pos)
+            if cur and cur != entry and entry > 0:
+                pnl = (cur - entry) * 100 * contracts
+                r   = pnl / (entry * 100 * contracts)
+                sign = "+" if pnl >= 0 else ""
+                parts.append(f"{ticker}#{pid} {sign}${pnl:.0f} {r:+.2f}R")
+            else:
+                parts.append(f"{ticker}#{pid} fetching...")
+
+    print("  " + "  |  ".join(parts))
+
+
+# =============================================================================
 #  GRACEFUL SHUTDOWN
 # =============================================================================
 
@@ -1416,10 +1826,12 @@ def main():
         }
     )
 
+    in_hours = is_market_hours_for_entry()
     notify_info(
         f"RL loop started — "
         f"{'PAPER' if args.paper else 'LIVE'} mode, "
-        f"{tracker.open_count} positions restored"
+        f"{tracker.open_count} positions restored, "
+        f"{'within' if in_hours else 'OUTSIDE'} market hours"
     )
 
     print_status(tracker, agent)
@@ -1438,7 +1850,6 @@ def main():
     while _running:
         tick_start = time.time()
         tick += 1
-        now = datetime.now()
 
         try:
             # ── Scanner refresh
@@ -1473,6 +1884,11 @@ def main():
             evaluate_new_candidates(
                 tracker, agent, action_state, last_scanner_results, regime
             )
+
+            # ── Print compact tick status bar
+            # Suppress overnight when outside hours and no positions — avoids spam
+            if is_market_hours_for_entry() or tracker.open_count > 0:
+                _print_tick_bar(tracker, tick, regime)
 
             # ── Periodic weight save
             if tick % cfg.AGENT_SAVE_INTERVAL_TICKS == 0:
