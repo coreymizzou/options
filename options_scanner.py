@@ -108,7 +108,8 @@ WATCHLIST = [
     "NVDA", "AAPL", "MSFT", "GOOGL", "META",
     "AMZN", "TSLA", "AMD", "CRWD", "PLTR",
     "COIN", "NFLX", "MU", "CRM", "MSTR",
-    "GS", "XOM", "GLD", "MELI",   # ← add these
+    "GS", "XOM", "MELI", "BA", "LRCX",
+    "F", "ALAB", "RTX" , "LMT"  # ← add these
 ]
 
 # ── Macro-only tickers — scanned for regime context and flow detection

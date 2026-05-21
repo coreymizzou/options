@@ -53,7 +53,7 @@ NOTIFY_WINDOWS_TOAST        = True   # Windows desktop toast notifications
 NOTIFY_DISCORD_WEBHOOK_URL  = ""     # Set to Discord webhook URL to enable; leave "" to disable
 
 # ─── Confidence & Decision Thresholds ────────────────────────────────────────
-MIN_CONFLUENCE_SCORE_TO_ENTER = 9    # Scanner confluence score floor for entry consideration
+MIN_CONFLUENCE_SCORE_TO_ENTER = 7    # Scanner confluence score floor for entry consideration
 ENTER_CONFIDENCE_THRESHOLD   = 0.55  # Agent confidence required to recommend ENTER
 EXIT_CONFIDENCE_THRESHOLD    = 0.55  # Agent confidence required to recommend EXIT
 HOLD_IS_DEFAULT              = True  # When uncertain, default to HOLD not EXIT
@@ -128,13 +128,16 @@ SECTOR_MAP = {
     "TSLA":  "ev_auto",
     "COIN":  "crypto_tech",
     "MSTR":  "crypto_tech",
-    "SPY":   "index",
-    "QQQ":   "index",
     # ── New additions ─────────────────────────────────
     "GS":    "financials",    # Goldman — Fed/rate sensitive, high IV
     "XOM":   "energy",        # ExxonMobil — oil/geo driven, uncorrelated to tech
     "GLD":   "commodities",   # Gold ETF — RISK_OFF hedge, rallies when equities sell
     "MELI":  "intl_growth",   # MercadoLibre — Latin American e-commerce, different catalyst set
+    "LRCX": "semiconductors",
+    "ALAB": "ai_infrastructure", 
+    "RTX":  "defense",
+    "LMT":  "defense",
+    "F":    "automotive",
 }
 
 # ─── OI Change Detection ─────────────────────────────────────────────────────
@@ -147,6 +150,14 @@ AUTO_MAX_POSITIONS   = 10         # Max concurrent positions in --auto mode
 AUTO_MAX_CAPITAL_PCT = 0.90       # Max % of account to deploy at once in --auto mode
                                   # e.g. 0.40 = never risk more than $10,000 simultaneously
                                   # Each position still respects MAX_RISK_DOLLARS
+
+# ─── EOD Close Rule ──────────────────────────────────────────────────────────
+EOD_CLOSE_CALLS      = True      # Force-close all long call positions before EOD
+                                  # Prevents overnight gap risk on bullish positions
+                                  # Set False to allow overnight holds
+EOD_CLOSE_HOUR       = 15        # ET hour to trigger EOD close (15 = 3pm)
+EOD_CLOSE_MINUTE     = 20        # ET minute to trigger EOD close (20 = :20)
+                                  # Default: 3:20pm ET — 10 minutes before close
 
 # ─── Phase 2 Hooks (not active yet) ──────────────────────────────────────────
 # Set to True when broker integration is ready
