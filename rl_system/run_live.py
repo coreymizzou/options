@@ -1418,9 +1418,9 @@ def evaluate_new_candidates(
             continue
 
         # Skip if last action for this ticker was already ENTER
-        # prevents re-alerting on same signal before user has had time to act
         last_action = action_state.get_last(f"entry_{ticker}")
         if last_action == "ENTER":
+            logger.debug(f"  {ticker} skipped — action state is ENTER")
             continue
 
         # Skip if ticker already has a pending unfilled order
@@ -1433,8 +1433,7 @@ def evaluate_new_candidates(
         # Skip if on cooldown
         if db.is_on_cooldown(ticker):
             cd = db.get_cooldown(ticker)
-            if DEBUG_MODE:
-                logger.debug(f"  {ticker} on cooldown until {cd.get('cooldown_until', '?')[:16]}")
+            logger.debug(f"  {ticker} on cooldown until {cd.get('cooldown_until', '?')[:16]}")
             continue
 
         # Position limit and capital check
@@ -2836,8 +2835,14 @@ def main():
             )
 
             # ── Print compact tick status bar
-            # Suppress overnight when outside hours and no positions — avoids spam
-            if is_market_hours_for_entry() or tracker.open_count > 0:
+            # Always print tick bar so user can see system is alive
+            # Suppress only between midnight and 6am ET to avoid overnight spam
+            try:
+                from zoneinfo import ZoneInfo
+            except ImportError:
+                from backports.zoneinfo import ZoneInfo
+            _et_hour = datetime.now(ZoneInfo("America/New_York")).hour
+            if _et_hour >= 6 or tracker.open_count > 0:
                 _print_tick_bar(tracker, tick, regime)
 
             # ── Periodic weight save
