@@ -1399,11 +1399,13 @@ def construct_trade(
             short_leg["mid"]    = round(main_leg["mid"] * 0.45, 2)
             short_leg["bid"]    = round(short_leg["mid"] * 0.93, 2)
             short_leg["ask"]    = round(short_leg["mid"] * 1.07, 2)
+            trade["short_leg_synthetic"] = True
 
         # Final sanity check: net debit must be positive and < spread width
         net_debit = main_leg.get("mid", 0) - short_leg.get("mid", 0)
         if net_debit <= 0 or net_debit >= spread_width:
             short_leg["mid"] = round(main_leg.get("mid", 1) * 0.45, 2)
+            trade["short_leg_synthetic"] = True
 
         trade["short_leg"] = short_leg
 
@@ -1461,8 +1463,12 @@ def compute_trade_pricing(trade: dict) -> dict:
 
     if not main:
         return pricing
+    if "THEORETICAL" in str(trade.get("data_quality", "")).upper():
+        return pricing
 
     if "SPREAD" in strategy:
+        if trade.get("short_leg_synthetic"):
+            return {}
         # Recompute both legs from live bid/ask if available
         for leg in [main, short]:
             b = leg.get("bid", 0) or 0

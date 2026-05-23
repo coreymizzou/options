@@ -1016,13 +1016,23 @@ def run_scanner(paper_mode: bool, regime: Dict) -> List[Dict]:
         except Exception as e:
             logger.warning(f"Scanner error on {ticker}: {e}")
 
-    valid = [
-        r for r in results
-        if not r.get("error")
-        and r.get("confluence", {}).get("score", 0) >= cfg.MIN_CONFLUENCE_SCORE_TO_ENTER
-        and r.get("trade", {}).get("main_leg", {}).get("strike")
-        and (r.get("pricing", {}).get("entry") or 0) >= 0.50
-    ]
+    def _valid_scanner_result(r: Dict) -> bool:
+        trade = r.get("trade", {})
+        if r.get("error"):
+            return False
+        if "THEORETICAL" in str(trade.get("data_quality", "")).upper():
+            return False
+        if trade.get("short_leg_synthetic"):
+            return False
+        if r.get("confluence", {}).get("score", 0) < cfg.MIN_CONFLUENCE_SCORE_TO_ENTER:
+            return False
+        if not trade.get("main_leg", {}).get("strike"):
+            return False
+        if (r.get("pricing", {}).get("entry") or 0) < 0.50:
+            return False
+        return True
+
+    valid = [r for r in results if _valid_scanner_result(r)]
 
     logger.info(f"Scanner complete: {len(results)} scanned, {len(valid)} meet threshold")
     return sorted(valid, key=lambda r: r.get("confluence", {}).get("score", 0), reverse=True)
@@ -1485,6 +1495,14 @@ def evaluate_new_candidates(
     Hard rules checked first, then agent scores ENTER vs WAIT.
     """
     actions_taken = []
+    pending_entry_cost = 0.0
+    if pending_orders:
+        for pdata in pending_orders.values():
+            pending_entry_cost += (
+                (pdata.get("limit_price") or pdata.get("entry_price") or 0)
+                * 100
+                * (pdata.get("contracts") or 1)
+            )
 
     for scanner_result in scanner_results[:5]:   # top 5 candidates only
         ticker = scanner_result.get("ticker", "?").upper()
@@ -1527,10 +1545,12 @@ def evaluate_new_candidates(
             next_premium = (scanner_result.get("pricing", {}).get("entry", 0) or 0) * 100
             if next_premium <= 0:
                 continue
-            if bankroll[0] < next_premium:
+            available_bankroll = bankroll[0] - pending_entry_cost
+            if available_bankroll < next_premium:
                 logger.info(
-                    f"[BANKROLL] Insufficient funds — need ${next_premium:.2f}, "
-                    f"have ${bankroll[0]:.2f} — skipping {ticker}"
+                    f"[BANKROLL] Insufficient funds after pending orders — "
+                    f"need ${next_premium:.2f}, have ${available_bankroll:.2f} "
+                    f"(${pending_entry_cost:.2f} reserved) — skipping {ticker}"
                 )
                 continue
         elif auto_mode:
@@ -1541,6 +1561,7 @@ def evaluate_new_candidates(
             total_deployed = sum(
                 p.get("entry_cost", 0) for p in tracker.open_positions.values()
             )
+            total_deployed += pending_entry_cost
             max_deploy = cfg.ACCOUNT_SIZE * cfg.AUTO_MAX_CAPITAL_PCT
             next_cost  = (scanner_result.get("pricing", {}).get("entry", 0) or 0) * 100
             if total_deployed + next_cost > max_deploy:
@@ -1591,6 +1612,9 @@ def evaluate_new_candidates(
             continue
 
         _, correlation_warning = check_sector_correlation(ticker, direction, tracker)
+        if correlation_warning and (auto_mode or live_paper):
+            logger.info(f"  {ticker} blocked — {correlation_warning}")
+            continue
 
         snapshot = build_market_snapshot(scanner_result)
 
