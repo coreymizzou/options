@@ -49,7 +49,10 @@ except ImportError:
     BROKER_AVAILABLE = False
 # zoneinfo imported inside is_market_hours_for_entry() for Python 3.9+ compatibility
 from database import _dumps as _json_dumps  # numpy-safe json encoder
-from database import save_pending_orders, load_pending_orders
+from database import (
+    save_pending_orders, load_pending_orders,
+    save_pending_exit_orders, load_pending_exit_orders,
+)
 from rl_agent import DecisionAgent
 
 # ─── OI cache for change detection (Tier 2 feature) ─────────────────────────
@@ -131,8 +134,8 @@ def is_market_hours_for_entry() -> bool:
         )
         return open_time <= now_et <= close_time
     except Exception as e:
-        logger.warning(f"Market hours check failed: {e} — defaulting to open")
-        return True   # fail open so we don't miss real signals
+        logger.warning(f"Market hours check failed: {e} — defaulting to closed")
+        return False
 
 
 # =============================================================================
@@ -688,7 +691,10 @@ def get_current_option_price(position: Dict) -> Optional[float]:
         opt_type = "put"
 
     if not ticker or not strike or not expiration:
-        return entry_price
+        logger.warning(
+            f"Cannot price position #{position_id}: missing ticker/strike/expiration"
+        )
+        return None
 
     # ── Check if this is a spread — read short leg from notes
     short_strike   = None
@@ -740,8 +746,11 @@ def get_current_option_price(position: Dict) -> Optional[float]:
             logger.debug(f"yfinance long leg failed for {ticker}: {e}")
 
     if long_mid is None:
-        logger.debug(f"Could not fetch long leg price for {ticker} {strike} — using entry price")
-        return entry_price
+        logger.warning(
+            f"Could not fetch live option price for {ticker} {strike} {opt_type} "
+            f"exp {expiration}; treating quote as stale"
+        )
+        return None
 
     # ── For spreads: fetch short leg and compute net value
     if is_spread and short_strike:
@@ -1027,7 +1036,8 @@ def evaluate_open_positions(
     regime: Dict,
     auto_mode: bool = False,
     bankroll: Optional[list] = None,
-    live_paper: bool = False
+    live_paper: bool = False,
+    pending_exit_orders: dict = None
 ) -> List[Dict]:
     """
     Evaluate each open position. Apply hard rules first, then agent scoring.
@@ -1046,6 +1056,13 @@ def evaluate_open_positions(
     for position_id, position in list(tracker.open_positions.items()):
         ticker = position["ticker"].upper()
 
+        if pending_exit_orders and any(
+            int(v.get("position_id", -1)) == int(position_id)
+            for v in pending_exit_orders.values()
+        ):
+            logger.info(f"  {ticker} #{position_id} already has a pending exit order — waiting for broker fill")
+            continue
+
         # Get latest scanner data for this ticker if available,
         # otherwise use a minimal stub
         scanner_result = scanner_by_ticker.get(ticker, {
@@ -1059,6 +1076,19 @@ def evaluate_open_positions(
         # Do NOT use the scanner's main_leg.mid — that's a different strike/expiry
         # Always fetch the live mid for the exact contract we hold
         current_option_price = get_current_option_price(position)
+        if current_option_price is None or current_option_price <= 0:
+            logger.warning(
+                f"  {ticker} #{position_id}: stale/missing option quote — "
+                "skipping hard exits and agent scoring this tick"
+            )
+            db.log_journal_event(
+                "STALE_QUOTE",
+                ticker=ticker,
+                position_id=position_id,
+                reason_summary="Missing live option quote; skipped exit evaluation",
+                details={"position": position}
+            )
+            continue
 
         # Build snapshot
         snapshot = build_market_snapshot(scanner_result, position, current_option_price)
@@ -1122,8 +1152,32 @@ def evaluate_open_positions(
                             market_order = True
                         )
                     if ok:
-                        logger.info(f"  Closing order placed for {ticker} order={oid} — position will be confirmed on next reconciliation tick")
-                        confirmed_exit_price = current_option_price
+                        logger.info(f"  Closing order placed for {ticker} order={oid} — waiting for broker fill confirmation")
+                        if pending_exit_orders is not None:
+                            pending_exit_orders[oid] = {
+                                "position_id": position_id,
+                                "ticker": ticker,
+                                "exit_reason": hard_reason,
+                                "submitted_at": datetime.now().isoformat(),
+                                "estimated_exit_price": current_option_price,
+                                "position": position,
+                                "regime": regime,
+                                "snapshot": snapshot,
+                            }
+                            save_pending_exit_orders(pending_exit_orders)
+                        action_state.update(str(position_id), "EXIT_PENDING", 1.0)
+                        actions_taken.append({
+                            "type": "EXIT_SUBMITTED", "ticker": ticker,
+                            "reason": hard_reason, "position_id": position_id,
+                            "order_id": oid
+                        })
+                        continue
+                    logger.error(f"  Closing order failed for {ticker}; position remains open in tracker")
+                    actions_taken.append({
+                        "type": "EXIT_ORDER_FAILED", "ticker": ticker,
+                        "reason": hard_reason, "position_id": position_id
+                    })
+                    continue
 
                 print(f"\n{sep}")
                 print(f"  [AUTO] {hard_reason} — closing {ticker} @ ${confirmed_exit_price:.2f}")
@@ -1303,7 +1357,33 @@ def evaluate_open_positions(
                             market_order = True
                         )
                     if ok:
-                        logger.info(f"  Exit order placed for {ticker} order={oid} — market order, will fill immediately")
+                        logger.info(f"  Exit order placed for {ticker} order={oid} — waiting for broker fill confirmation")
+                        if pending_exit_orders is not None:
+                            pending_exit_orders[oid] = {
+                                "position_id": position_id,
+                                "ticker": ticker,
+                                "exit_reason": "AGENT_EXIT",
+                                "submitted_at": datetime.now().isoformat(),
+                                "estimated_exit_price": current_option_price,
+                                "position": position,
+                                "regime": regime,
+                                "snapshot": snapshot,
+                            }
+                            save_pending_exit_orders(pending_exit_orders)
+                        print(f"  [LIVE-PAPER] EXIT submitted for {ticker} order={oid} @ est ${current_option_price:.2f}")
+                        action_state.update(str(position_id), "EXIT_PENDING", confidence)
+                        actions_taken.append({
+                            "type": "EXIT_SUBMITTED", "ticker": ticker,
+                            "reason": "AGENT_EXIT", "position_id": position_id,
+                            "order_id": oid
+                        })
+                        continue
+                    logger.error(f"  Exit order failed for {ticker}; position remains open in tracker")
+                    actions_taken.append({
+                        "type": "EXIT_ORDER_FAILED", "ticker": ticker,
+                        "reason": "AGENT_EXIT", "position_id": position_id
+                    })
+                    continue
 
                 pnl  = tracker.unrealized_pnl(position_id, exit_price)
                 r_   = tracker.unrealized_r(position_id, exit_price)
@@ -1436,6 +1516,11 @@ def evaluate_new_candidates(
             logger.debug(f"  {ticker} on cooldown until {cd.get('cooldown_until', '?')[:16]}")
             continue
 
+        allowed, risk_reason = tracker.can_enter(ticker)
+        if not allowed:
+            logger.info(f"  {ticker} blocked by risk gate — {risk_reason}")
+            continue
+
         # Position limit and capital check
         if bankroll is not None:
             # Bankroll mode — check if pool can cover the next premium (1 contract)
@@ -1485,6 +1570,26 @@ def evaluate_new_candidates(
 
         # ── Sector / direction correlation check (warn only, not block)
         direction = scanner_result.get("trade", {}).get("direction", "")
+        trade_info = scanner_result.get("trade", {})
+        strategy_name = (trade_info.get("strategy") or "").upper()
+        tech_info = scanner_result.get("tech", {})
+        sector_info = scanner_result.get("sector", {})
+        broad_market = sector_info.get("broad_market", "UNKNOWN")
+        if (
+            direction == "BULLISH"
+            and ("CALL" in strategy_name or "BULL" in strategy_name)
+            and broad_market == "BEARISH"
+        ):
+            logger.info(f"  {ticker} blocked — bullish call setup against bearish SPY/QQQ tape")
+            continue
+        if (
+            direction == "BULLISH"
+            and ("CALL" in strategy_name or "BULL" in strategy_name)
+            and tech_info.get("above_vwap") is False
+        ):
+            logger.info(f"  {ticker} blocked — bullish call setup while ticker is below VWAP")
+            continue
+
         _, correlation_warning = check_sector_correlation(ticker, direction, tracker)
 
         snapshot = build_market_snapshot(scanner_result)
@@ -1504,6 +1609,10 @@ def evaluate_new_candidates(
             # Closing flow — reduce confidence
             confidence = round(confidence * 0.75, 3)
             tier2_notes.append("⚠ OI suggests closing flow — confidence reduced 25%")
+        flow = scanner_result.get("flow", [])
+        if flow and flow[0].get("dir_confidence") == "LOW":
+            confidence = round(confidence * 0.85, 3)
+            tier2_notes.append("⚠ Flow direction ambiguous — confidence reduced 15%")
         if correlation_warning:
             tier2_notes.append(f"⚠ {correlation_warning}")
 
@@ -2572,8 +2681,11 @@ def main():
     regime: Dict = {}
     tick = 0
     _pending_orders: Dict[str, Dict] = load_pending_orders()  # restored from DB on startup
+    _pending_exit_orders: Dict[str, Dict] = load_pending_exit_orders()
     if _pending_orders:
         logger.info(f"Restored {len(_pending_orders)} pending order(s) from previous session")
+    if _pending_exit_orders:
+        logger.info(f"Restored {len(_pending_exit_orders)} pending exit order(s) from previous session")
 
     logger.info(
         f"Starting 60-second loop "
@@ -2722,8 +2834,83 @@ def main():
                     tracker, agent, action_state, last_scanner_results, regime,
                     auto_mode=AUTO_MODE,
                     bankroll=BANKROLL if BANKROLL_MODE else None,
-                    live_paper=LIVE_PAPER_MODE
+                    live_paper=LIVE_PAPER_MODE,
+                    pending_exit_orders=_pending_exit_orders
                 )
+
+            # ── Reconcile pending exit orders before considering new entries
+            if LIVE_PAPER_MODE and BROKER_AVAILABLE and _pending_exit_orders:
+                try:
+                    import requests as _req
+                    resolved_exit_oids = []
+                    for oid, exit_data in list(_pending_exit_orders.items()):
+                        r = _req.get(
+                            f"{broker.ALPACA_BASE}/orders/{oid}",
+                            headers=broker._headers(), timeout=8
+                        )
+                        if r.status_code != 200:
+                            continue
+
+                        order = r.json()
+                        status = order.get("status", "").lower()
+                        position_id = int(exit_data.get("position_id", 0) or 0)
+                        ticker_r = exit_data.get("ticker", "?")
+
+                        if status == "filled":
+                            fill_price = float(order.get("filled_avg_price", 0) or 0)
+                            if fill_price <= 0:
+                                fill_price = float(exit_data.get("estimated_exit_price", 0) or 0)
+                            position = tracker.get_position(position_id) or exit_data.get("position", {})
+                            if position and fill_price > 0:
+                                result = tracker.close_position(
+                                    position_id,
+                                    fill_price,
+                                    exit_data.get("exit_reason", "BROKER_EXIT")
+                                )
+                                realized_r = result.get("realized_r", 0)
+                                if BANKROLL_MODE:
+                                    proceeds = fill_price * 100 * position.get("contracts", 1)
+                                    BANKROLL[0] = round(BANKROLL[0] + proceeds, 2)
+                                    db.set_state("bankroll_remaining", BANKROLL[0])
+
+                                entry_snap = json.loads(position.get("raw_scanner_data") or "{}")
+                                entry_snap["regime_data"] = exit_data.get("regime", regime)
+                                exit_snapshot = exit_data.get("snapshot") or {}
+                                exit_snapshot["option_mid"] = fill_price
+                                agent.update_on_close(
+                                    position=position,
+                                    exit_reason=exit_data.get("exit_reason", "BROKER_EXIT"),
+                                    realized_r=realized_r,
+                                    entry_market_snapshot=build_market_snapshot(entry_snap),
+                                    exit_market_snapshot=exit_snapshot,
+                                    ticks_held=_ticks_held(position),
+                                    rolling_drawdown=_rolling_drawdown()
+                                )
+                                _clear_price_cache(position_id)
+                                action_state.update(str(position_id), "EXIT", 1.0)
+                                print(f"  [RECONCILE] Exit fill confirmed — CLOSED {ticker_r} #{position_id} @ ${fill_price:.2f} order={oid}")
+                            resolved_exit_oids.append(oid)
+                        elif status in ("canceled", "cancelled", "rejected", "expired"):
+                            logger.warning(
+                                f"  Pending exit order {oid} for {ticker_r} {status}; "
+                                "position remains open"
+                            )
+                            db.log_journal_event(
+                                "EXIT_ORDER_FAILED",
+                                ticker=ticker_r,
+                                position_id=position_id,
+                                reason_summary=f"Exit order {status}; position remains open",
+                                details={"order_id": oid, "status": status}
+                            )
+                            action_state.update(str(position_id), "HOLD", 0.0)
+                            resolved_exit_oids.append(oid)
+
+                    for oid in resolved_exit_oids:
+                        _pending_exit_orders.pop(oid, None)
+                    if resolved_exit_oids:
+                        save_pending_exit_orders(_pending_exit_orders)
+                except Exception as e:
+                    logger.warning(f"Exit reconciliation error: {e}")
 
             # ── Reconcile pending orders (check for late fills at Alpaca)
             if LIVE_PAPER_MODE and BROKER_AVAILABLE and _pending_orders:
