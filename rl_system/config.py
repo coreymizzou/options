@@ -11,7 +11,7 @@ without touching core logic in any other module.
 ACCOUNT_SIZE         = 100_000.0   # Total account size ($)
 MAX_RISK_PCT         = 0.02       # Max risk per trade as fraction of account
 MAX_RISK_DOLLARS     = ACCOUNT_SIZE * MAX_RISK_PCT   # = $500
-MAX_CONCURRENT_POSITIONS = 10      # Hard cap on simultaneous open positions
+MAX_CONCURRENT_POSITIONS = 3      # Hard cap on simultaneous open positions
 
 # ─── Position Management ─────────────────────────────────────────────────────
 STOP_LOSS_PCT        = 0.33       # Close position if down this fraction of entry cost
@@ -19,6 +19,9 @@ PROFIT_TARGET_PCT    = 0.66       # Take profit at this fraction gain (100% = 2x
 MAX_DTE_AT_ENTRY     = 60         # Never enter with more than this many days to expiry
 MIN_DTE_AT_ENTRY     = 21         # Never enter with fewer than this many days to expiry
 CLOSE_BEFORE_DTE     = 7          # Force-close any position within this many DTE
+EOD_CLOSE_CALLS      = True       # Close long call positions before overnight gap risk
+EOD_CLOSE_HOUR       = 15         # ET hour for long-call EOD close
+EOD_CLOSE_MINUTE     = 20         # ET minute for long-call EOD close
 
 # ─── Cooldown / No-Chase Rules ───────────────────────────────────────────────
 COOLDOWN_HOURS       = 24         # Hours after close before re-entering same ticker
@@ -53,7 +56,7 @@ NOTIFY_WINDOWS_TOAST        = True   # Windows desktop toast notifications
 NOTIFY_DISCORD_WEBHOOK_URL  = ""     # Set to Discord webhook URL to enable; leave "" to disable
 
 # ─── Confidence & Decision Thresholds ────────────────────────────────────────
-MIN_CONFLUENCE_SCORE_TO_ENTER = 9    # Scanner confluence score floor for entry consideration
+MIN_CONFLUENCE_SCORE_TO_ENTER = 7    # Scanner confluence score floor for entry consideration
 ENTER_CONFIDENCE_THRESHOLD   = 0.55  # Agent confidence required to recommend ENTER
 EXIT_CONFIDENCE_THRESHOLD    = 0.55  # Agent confidence required to recommend EXIT
 HOLD_IS_DEFAULT              = True  # When uncertain, default to HOLD not EXIT

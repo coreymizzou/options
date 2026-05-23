@@ -624,6 +624,34 @@ def _fetch_option_mid(ticker: str, strike: float, expiration: str,
     return None
 
 
+def is_eod_close_time() -> bool:
+    """
+    Returns True if current ET time is at or past the EOD close window.
+    Used to force-close long call positions before overnight gap risk.
+    Configurable via EOD_CLOSE_HOUR and EOD_CLOSE_MINUTE in config.py.
+    """
+    if not getattr(cfg, 'EOD_CLOSE_CALLS', False):
+        return False
+    try:
+        try:
+            from zoneinfo import ZoneInfo
+        except ImportError:
+            from backports.zoneinfo import ZoneInfo
+        et = ZoneInfo("America/New_York")
+        now_et = datetime.now(et)
+        if now_et.weekday() >= 5:
+            return False
+        eod_time = now_et.replace(
+            hour=getattr(cfg, 'EOD_CLOSE_HOUR', 15),
+            minute=getattr(cfg, 'EOD_CLOSE_MINUTE', 20),
+            second=0, microsecond=0
+        )
+        close_time = now_et.replace(hour=15, minute=30, second=0, microsecond=0)
+        return eod_time <= now_et <= close_time
+    except Exception:
+        return False
+
+
 def get_current_option_price(position: Dict) -> Optional[float]:
     """
     Fetch the current net price for an open position.
@@ -1585,9 +1613,9 @@ def evaluate_new_candidates(
             continue
 
         # Skip if last action for this ticker was already ENTER
-        # prevents re-alerting on same signal before user has had time to act
         last_action = action_state.get_last(f"entry_{ticker}")
         if last_action == "ENTER":
+            logger.debug(f"  {ticker} skipped — action state is ENTER")
             continue
 
         # Skip if ticker already has a pending unfilled order
@@ -1600,8 +1628,7 @@ def evaluate_new_candidates(
         # Skip if on cooldown
         if db.is_on_cooldown(ticker):
             cd = db.get_cooldown(ticker)
-            if DEBUG_MODE:
-                logger.debug(f"  {ticker} on cooldown until {cd.get('cooldown_until', '?')[:16]}")
+            logger.debug(f"  {ticker} on cooldown until {cd.get('cooldown_until', '?')[:16]}")
             continue
 
         allowed, risk_reason = tracker.can_enter(ticker)
@@ -1757,7 +1784,16 @@ def evaluate_new_candidates(
             not is_explore_tick
         )
 
-        if should_notify:
+        # Auto mode: enter regardless of whether action state changed
+        # should_notify gates user alerts but not autonomous entries
+        should_enter = (
+            auto_mode and
+            action == "ENTER" and
+            confidence >= cfg.ENTER_CONFIDENCE_THRESHOLD and
+            not is_explore_tick
+        )
+
+        if should_notify or should_enter:
             short_leg = trade.get("short_leg", {})
             strategy  = trade.get("strategy", "")
             exp       = main_leg.get("exp") or trade.get("exp")
@@ -1792,19 +1828,20 @@ def evaluate_new_candidates(
             else:
                 trade_summary = f"${main_leg.get('strike')} {opt_label}  exp {exp}"
 
-            notify_entry(
-                ticker=ticker,
-                confidence=confidence,
-                reasons=reasons[:5],
-                strategy=strategy,
-                strike=main_leg.get("strike"),
-                expiration=exp,
-                entry=pricing.get("entry"),
-                stop=pricing.get("stop"),
-                target=pricing.get("target"),
-                contracts=pricing.get("contracts"),
-                trade_summary=trade_summary
-            )
+            if should_notify:
+                notify_entry(
+                    ticker=ticker,
+                    confidence=confidence,
+                    reasons=reasons[:5],
+                    strategy=strategy,
+                    strike=main_leg.get("strike"),
+                    expiration=exp,
+                    entry=pricing.get("entry"),
+                    stop=pricing.get("stop"),
+                    target=pricing.get("target"),
+                    contracts=pricing.get("contracts"),
+                    trade_summary=trade_summary
+                )
 
             # ── Enter position — auto or manual
             if auto_mode:
@@ -2944,7 +2981,7 @@ def main():
             # ── Scanner refresh (market hours only)
             time_since_scan = tick_start - last_scanner_run
             in_hours_for_scan = is_market_hours_for_entry()
-            if (time_since_scan >= cfg.SCANNER_RUN_INTERVAL or not last_scanner_results) and in_hours_for_scan:
+            if time_since_scan >= cfg.SCANNER_RUN_INTERVAL and in_hours_for_scan:
                 if SCANNER_AVAILABLE:
                     try:
                         regime = determine_market_regime()
@@ -2965,6 +3002,96 @@ def main():
                     logger.warning("Scanner unavailable — using cached results")
             elif not in_hours_for_scan and time_since_scan >= cfg.SCANNER_RUN_INTERVAL:
                 logger.debug(f"Tick {tick}: Outside market hours — skipping scanner refresh")
+
+            # ── EOD close — force-close long calls before overnight gap risk
+            if is_eod_close_time() and tracker.open_count > 0:
+                for pid, pos in list(tracker.open_positions.items()):
+                    strategy = pos.get("strategy", "")
+                    option_type = pos.get("option_type", "call")
+                    ticker = pos.get("ticker", "")
+                    # Only close long calls — puts and spreads can hold overnight
+                    if option_type.lower() == "call" and "PUT" not in strategy.upper():
+                        if any(
+                            int(v.get("position_id", -1)) == int(pid)
+                            for v in _pending_exit_orders.values()
+                        ):
+                            continue
+                        current_price = get_current_option_price(pos)
+                        if current_price and current_price > 0:
+                            logger.info(f"  [EOD] Force-closing {ticker} long call @ ${current_price:.2f} — overnight gap protection")
+                            print(f"  [EOD] Closing {ticker} call before EOD @ ${current_price:.2f}")
+                            if LIVE_PAPER_MODE and BROKER_AVAILABLE and broker._is_configured():
+                                ok, oid, _ = broker.place_option_order(
+                                    ticker       = ticker,
+                                    expiration   = pos.get("expiration", ""),
+                                    option_type  = option_type,
+                                    strike       = pos.get("strike", 0),
+                                    side         = "sell_to_close",
+                                    quantity     = pos.get("contracts", 1),
+                                    limit_price  = current_price,
+                                    market_order = True
+                                )
+                                if ok:
+                                    _record_broker_order(
+                                        oid=oid,
+                                        order_kind="EXIT",
+                                        status="SUBMITTED",
+                                        ticker=ticker,
+                                        side="sell_to_close",
+                                        strategy=strategy,
+                                        option_type=option_type,
+                                        strike=pos.get("strike", 0),
+                                        expiration=pos.get("expiration", ""),
+                                        quantity=pos.get("contracts", 1),
+                                        limit_price=current_price,
+                                        position_id=pid,
+                                        raw_payload={"exit_reason": "EOD_CLOSE", "market_order": True},
+                                        notes="eod_call_close",
+                                    )
+                                    snapshot = build_market_snapshot(
+                                        {"ticker": ticker, "trade": {"main_leg": {}}, "regime_data": regime},
+                                        pos,
+                                        current_price,
+                                    )
+                                    _pending_exit_orders[oid] = {
+                                        "position_id": pid,
+                                        "ticker": ticker,
+                                        "exit_reason": "EOD_CLOSE: overnight gap protection",
+                                        "submitted_at": datetime.now().isoformat(),
+                                        "estimated_exit_price": current_price,
+                                        "position": pos,
+                                        "regime": regime,
+                                        "snapshot": snapshot,
+                                    }
+                                    save_pending_exit_orders(_pending_exit_orders)
+                                    action_state.update(str(pid), "EXIT_PENDING", 1.0)
+                                else:
+                                    logger.error(f"  [EOD] Close order failed for {ticker}; position remains open")
+                            else:
+                                result = tracker.close_position(
+                                    pid,
+                                    current_price,
+                                    "EOD_CLOSE: overnight gap protection"
+                                )
+                                entry_snap = json.loads(pos.get("raw_scanner_data") or "{}")
+                                entry_snap["regime_data"] = regime
+                                agent.update_on_close(
+                                    position=pos,
+                                    exit_reason="EOD_CLOSE: overnight gap protection",
+                                    realized_r=result.get("realized_r", 0),
+                                    entry_market_snapshot=build_market_snapshot(entry_snap),
+                                    exit_market_snapshot=build_market_snapshot(
+                                        {"ticker": ticker, "trade": {"main_leg": {}}, "regime_data": regime},
+                                        pos,
+                                        current_price,
+                                    ),
+                                    ticks_held=_ticks_held(pos),
+                                    rolling_drawdown=_rolling_drawdown()
+                                )
+                                if BANKROLL_MODE:
+                                    proceeds = current_price * 100 * pos.get("contracts", 1)
+                                    BANKROLL[0] = round(BANKROLL[0] + proceeds, 2)
+                                    db.set_state("bankroll_remaining", BANKROLL[0])
 
             # ── Evaluate open positions
             if tracker.open_count > 0:
@@ -3216,8 +3343,14 @@ def main():
             )
 
             # ── Print compact tick status bar
-            # Suppress overnight when outside hours and no positions — avoids spam
-            if is_market_hours_for_entry() or tracker.open_count > 0:
+            # Always print tick bar so user can see system is alive
+            # Suppress only between midnight and 6am ET to avoid overnight spam
+            try:
+                from zoneinfo import ZoneInfo
+            except ImportError:
+                from backports.zoneinfo import ZoneInfo
+            _et_hour = datetime.now(ZoneInfo("America/New_York")).hour
+            if _et_hour >= 6 or tracker.open_count > 0:
                 _print_tick_bar(tracker, tick, regime)
 
             # ── Periodic weight save
