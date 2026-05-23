@@ -35,6 +35,30 @@ def _load_rows(db_path: Path) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _load_candidate_rows(db_path: Path) -> list[dict]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        exists = conn.execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='candidate_evaluations'
+            """
+        ).fetchone()
+        if not exists:
+            return []
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM candidate_evaluations
+            ORDER BY timestamp DESC
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+    return [dict(r) for r in rows]
+
+
 def _json_dict(raw: str) -> dict:
     try:
         data = json.loads(raw or "{}")
@@ -139,6 +163,19 @@ def _print_bucket(title: str, buckets: dict[str, list[float]], min_count: int):
         )
 
 
+def _print_count_bucket(title: str, rows: list[dict], key: str):
+    counts = defaultdict(int)
+    for row in rows:
+        counts[row.get(key) or "unknown"] += 1
+    if not counts:
+        return
+    print(f"\n{title}")
+    print("  bucket                n")
+    print("  " + "-" * 25)
+    for bucket, count in sorted(counts.items(), key=lambda item: item[1], reverse=True):
+        print(f"  {str(bucket)[:18]:<18} {count:>4}")
+
+
 def build_enriched_rows(rows: list[dict]) -> list[dict]:
     enriched = []
     for row in rows:
@@ -197,6 +234,13 @@ def main():
 
     for title, key_fn in groups:
         _print_bucket(title, _bucket_rows(rows, key_fn), args.min_count)
+
+    candidates = _load_candidate_rows(db_path)
+    if candidates:
+        print(f"\nCandidate evaluations logged: {len(candidates)}")
+        _print_count_bucket("Candidates By Action", candidates, "action")
+        _print_count_bucket("Candidates By Flow Confidence", candidates, "flow_confidence")
+        _print_count_bucket("Candidates By Regime", candidates, "regime")
 
 
 if __name__ == "__main__":

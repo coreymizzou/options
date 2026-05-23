@@ -105,11 +105,10 @@ except ImportError:
 # ── Single-stock watchlist — these are traded directionally
 # High-liquidity names with active options markets and strong flow signals
 WATCHLIST = [
-    "NVDA", "AAPL", "MSFT", "GOOGL", "META",
-    "AMZN", "TSLA", "AMD", "CRWD", "PLTR",
-    "COIN", "NFLX", "MU", "CRM", "MSTR",
-    "GS", "XOM", "MELI", "BA", "LRCX",
-    "F", "ALAB", "RTX" , "LMT"  # ← add these
+    "NVDA", "TSLA", "AAPL", "MSFT", "META",
+    "AMZN", "GOOGL", "AMD", "MU", "MSTR",
+    "COIN", "PLTR", "NFLX", "CRWD", "CRM",
+    "XOM", "GLD",
 ]
 
 # ── Macro-only tickers — scanned for regime context and flow detection

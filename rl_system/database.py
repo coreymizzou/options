@@ -126,6 +126,65 @@ CREATE TABLE IF NOT EXISTS recommendations (
     position_id         INTEGER REFERENCES positions(id)
 );
 
+-- ── Broker Orders ───────────────────────────────────────────────────────────
+-- Durable order lifecycle state. The runtime still keeps a small pending queue
+-- for fast reconciliation, but this table is the auditable source of broker
+-- order status across restarts.
+CREATE TABLE IF NOT EXISTS orders (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    broker_order_id     TEXT UNIQUE,
+    client_order_id     TEXT,
+    order_kind          TEXT,       -- ENTRY / EXIT
+    status              TEXT,       -- SUBMITTED / FILLED / CANCELLED / REJECTED / EXPIRED
+    ticker              TEXT,
+    position_id         INTEGER REFERENCES positions(id),
+    side                TEXT,
+    strategy            TEXT,
+    option_type         TEXT,
+    strike              REAL,
+    expiration          TEXT,
+    quantity            INTEGER,
+    limit_price         REAL,
+    filled_price        REAL,
+    submitted_at        TEXT,
+    updated_at          TEXT,
+    raw_payload         TEXT,
+    notes               TEXT
+);
+
+-- ── Candidate Evaluations ───────────────────────────────────────────────────
+-- Every scanner candidate that survives hard pre-filters, including WAITs.
+-- Future outcome fields are intentionally nullable so a later job can label
+-- skipped trades with 1h/EOD/1d/MFE/MAE proxy outcomes.
+CREATE TABLE IF NOT EXISTS candidate_evaluations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp           TEXT,
+    ticker              TEXT,
+    strategy            TEXT,
+    direction           TEXT,
+    strike              REAL,
+    expiration          TEXT,
+    action              TEXT,
+    confidence          REAL,
+    confluence_score    INTEGER,
+    flow_confidence     TEXT,
+    ivr                 REAL,
+    regime              TEXT,
+    above_vwap          INTEGER,
+    entry_price         REAL,
+    reasons             TEXT,
+    market_snapshot     TEXT,
+    raw_scanner_data    TEXT,
+    recommendation_id   INTEGER REFERENCES recommendations(id),
+    position_id         INTEGER REFERENCES positions(id),
+    outcome_1h_r        REAL,
+    outcome_eod_r       REAL,
+    outcome_1d_r        REAL,
+    mfe_r               REAL,
+    mae_r               REAL,
+    outcome_labeled_at  TEXT
+);
+
 -- ── Trade Journal ─────────────────────────────────────────────────────────────
 -- Human-readable decision log — one entry per notable event
 CREATE TABLE IF NOT EXISTS trade_journal (
@@ -352,6 +411,156 @@ def get_recent_recommendations(limit: int = 20) -> List[Dict]:
             (limit,)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# =============================================================================
+#  ORDERS
+# =============================================================================
+
+def upsert_order(data: Dict[str, Any]) -> int:
+    """Insert or update a broker order lifecycle row."""
+    now = datetime.now().isoformat()
+    payload = {
+        "broker_order_id": data.get("broker_order_id"),
+        "client_order_id": data.get("client_order_id"),
+        "order_kind": data.get("order_kind"),
+        "status": data.get("status", "SUBMITTED"),
+        "ticker": data.get("ticker"),
+        "position_id": data.get("position_id"),
+        "side": data.get("side"),
+        "strategy": data.get("strategy"),
+        "option_type": data.get("option_type"),
+        "strike": data.get("strike"),
+        "expiration": data.get("expiration"),
+        "quantity": data.get("quantity"),
+        "limit_price": data.get("limit_price"),
+        "filled_price": data.get("filled_price"),
+        "submitted_at": data.get("submitted_at") or now,
+        "updated_at": now,
+        "raw_payload": _dumps(data.get("raw_payload") or {}),
+        "notes": data.get("notes", ""),
+    }
+    sql = """
+        INSERT INTO orders (
+            broker_order_id, client_order_id, order_kind, status, ticker,
+            position_id, side, strategy, option_type, strike, expiration,
+            quantity, limit_price, filled_price, submitted_at, updated_at,
+            raw_payload, notes
+        ) VALUES (
+            :broker_order_id, :client_order_id, :order_kind, :status, :ticker,
+            :position_id, :side, :strategy, :option_type, :strike, :expiration,
+            :quantity, :limit_price, :filled_price, :submitted_at, :updated_at,
+            :raw_payload, :notes
+        )
+        ON CONFLICT(broker_order_id) DO UPDATE SET
+            client_order_id = excluded.client_order_id,
+            order_kind      = excluded.order_kind,
+            status          = excluded.status,
+            ticker          = excluded.ticker,
+            position_id     = COALESCE(excluded.position_id, orders.position_id),
+            side            = excluded.side,
+            strategy        = excluded.strategy,
+            option_type     = excluded.option_type,
+            strike          = excluded.strike,
+            expiration      = excluded.expiration,
+            quantity        = excluded.quantity,
+            limit_price     = excluded.limit_price,
+            filled_price    = COALESCE(excluded.filled_price, orders.filled_price),
+            updated_at      = excluded.updated_at,
+            raw_payload     = excluded.raw_payload,
+            notes           = excluded.notes
+    """
+    with get_connection() as conn:
+        cur = conn.execute(sql, payload)
+        row = conn.execute(
+            "SELECT id FROM orders WHERE broker_order_id = ?",
+            (payload["broker_order_id"],)
+        ).fetchone()
+    return int(row["id"]) if row else int(cur.lastrowid)
+
+
+def update_order_status(
+    broker_order_id: str,
+    status: str,
+    filled_price: float = None,
+    position_id: int = None,
+    raw_payload: dict = None,
+    notes: str = None,
+):
+    """Update durable broker order state."""
+    sets = ["status = ?", "updated_at = ?"]
+    vals: List[Any] = [status, datetime.now().isoformat()]
+    if filled_price is not None:
+        sets.append("filled_price = ?")
+        vals.append(filled_price)
+    if position_id is not None:
+        sets.append("position_id = ?")
+        vals.append(position_id)
+    if raw_payload is not None:
+        sets.append("raw_payload = ?")
+        vals.append(_dumps(raw_payload))
+    if notes is not None:
+        sets.append("notes = ?")
+        vals.append(notes)
+    vals.append(broker_order_id)
+    with get_connection() as conn:
+        conn.execute(
+            f"UPDATE orders SET {', '.join(sets)} WHERE broker_order_id = ?",
+            vals
+        )
+
+
+def get_order_by_broker_id(broker_order_id: str) -> Optional[Dict]:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM orders WHERE broker_order_id = ?",
+            (broker_order_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+# =============================================================================
+#  CANDIDATE EVALUATIONS
+# =============================================================================
+
+def insert_candidate_evaluation(data: Dict[str, Any]) -> int:
+    """Log an evaluated scanner candidate, including WAIT/skipped decisions."""
+    sql = """
+        INSERT INTO candidate_evaluations (
+            timestamp, ticker, strategy, direction, strike, expiration,
+            action, confidence, confluence_score, flow_confidence, ivr,
+            regime, above_vwap, entry_price, reasons, market_snapshot,
+            raw_scanner_data, recommendation_id, position_id
+        ) VALUES (
+            :timestamp, :ticker, :strategy, :direction, :strike, :expiration,
+            :action, :confidence, :confluence_score, :flow_confidence, :ivr,
+            :regime, :above_vwap, :entry_price, :reasons, :market_snapshot,
+            :raw_scanner_data, :recommendation_id, :position_id
+        )
+    """
+    with get_connection() as conn:
+        cur = conn.execute(sql, {
+            "timestamp": data.get("timestamp") or datetime.now().isoformat(),
+            "ticker": data.get("ticker"),
+            "strategy": data.get("strategy"),
+            "direction": data.get("direction"),
+            "strike": data.get("strike"),
+            "expiration": data.get("expiration"),
+            "action": data.get("action"),
+            "confidence": data.get("confidence"),
+            "confluence_score": data.get("confluence_score"),
+            "flow_confidence": data.get("flow_confidence"),
+            "ivr": data.get("ivr"),
+            "regime": data.get("regime"),
+            "above_vwap": data.get("above_vwap"),
+            "entry_price": data.get("entry_price"),
+            "reasons": _dumps(data.get("reasons") or []),
+            "market_snapshot": _dumps(data.get("market_snapshot") or {}),
+            "raw_scanner_data": _dumps(data.get("raw_scanner_data") or {}),
+            "recommendation_id": data.get("recommendation_id"),
+            "position_id": data.get("position_id"),
+        })
+        return cur.lastrowid
 
 
 # =============================================================================

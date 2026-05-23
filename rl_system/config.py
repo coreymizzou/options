@@ -19,6 +19,9 @@ PROFIT_TARGET_PCT    = 0.66       # Take profit at this fraction gain (100% = 2x
 MAX_DTE_AT_ENTRY     = 60         # Never enter with more than this many days to expiry
 MIN_DTE_AT_ENTRY     = 21         # Never enter with fewer than this many days to expiry
 CLOSE_BEFORE_DTE     = 7          # Force-close any position within this many DTE
+EOD_CLOSE_CALLS      = True       # Close long call positions before overnight gap risk
+EOD_CLOSE_HOUR       = 15         # ET hour for long-call EOD close
+EOD_CLOSE_MINUTE     = 20         # ET minute for long-call EOD close
 
 # ─── Cooldown / No-Chase Rules ───────────────────────────────────────────────
 COOLDOWN_HOURS       = 24         # Hours after close before re-entering same ticker
@@ -147,6 +150,12 @@ AUTO_MAX_POSITIONS   = 10         # Max concurrent positions in --auto mode
 AUTO_MAX_CAPITAL_PCT = 0.90       # Max % of account to deploy at once in --auto mode
                                   # e.g. 0.40 = never risk more than $10,000 simultaneously
                                   # Each position still respects MAX_RISK_DOLLARS
+AUTO_ALLOWED_TICKERS = {
+    "NVDA", "TSLA", "AAPL", "MSFT", "META",
+    "AMZN", "GOOGL", "AMD", "MU", "MSTR",
+    "COIN", "PLTR", "NFLX", "CRWD", "CRM",
+    "XOM", "GLD",
+}
 
 # ─── Phase 2 Hooks (not active yet) ──────────────────────────────────────────
 # Set to True when broker integration is ready
