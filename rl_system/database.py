@@ -536,11 +536,30 @@ def get_daily_pnl() -> float:
         ).fetchone()
     return float(row["pnl"]) if row else 0.0
 
+def get_open_unrealized_pnl() -> float:
+    """Return latest recorded unrealized P&L across open positions."""
+    sql = """
+        SELECT COALESCE(SUM(ts.unrealized_pnl), 0) AS pnl
+        FROM positions p
+        LEFT JOIN tick_snapshots ts
+          ON ts.id = (
+              SELECT id FROM tick_snapshots
+              WHERE position_id = p.id
+              ORDER BY timestamp DESC
+              LIMIT 1
+          )
+        WHERE p.status = 'OPEN'
+    """
+    with get_connection() as conn:
+        row = conn.execute(sql).fetchone()
+    return float(row["pnl"]) if row else 0.0
+
 # =============================================================================
 #  PENDING ORDERS PERSISTENCE
 # =============================================================================
 
 PENDING_ORDERS_KEY = "pending_orders"
+PENDING_EXIT_ORDERS_KEY = "pending_exit_orders"
 
 def save_pending_orders(pending: dict):
     """Persist pending order dict to system_state so restarts don't lose them."""
@@ -553,3 +572,15 @@ def load_pending_orders() -> dict:
 def clear_pending_orders():
     """Wipe pending orders from system_state."""
     set_state(PENDING_ORDERS_KEY, {})
+
+def save_pending_exit_orders(pending: dict):
+    """Persist pending exit order dict so restarts don't lose close orders."""
+    set_state(PENDING_EXIT_ORDERS_KEY, pending)
+
+def load_pending_exit_orders() -> dict:
+    """Load pending exit orders from system_state on startup."""
+    return get_state(PENDING_EXIT_ORDERS_KEY, default={})
+
+def clear_pending_exit_orders():
+    """Wipe pending exit orders from system_state."""
+    set_state(PENDING_EXIT_ORDERS_KEY, {})

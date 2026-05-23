@@ -92,10 +92,13 @@ class PositionTracker:
 
         # 4. Daily drawdown block
         daily_pnl = db.get_daily_pnl()
+        open_pnl = db.get_open_unrealized_pnl()
+        total_daily_risk_pnl = daily_pnl + min(open_pnl, 0)
         max_daily_loss = ACCOUNT_SIZE * MAX_DAILY_DRAWDOWN_PCT
-        if daily_pnl < -max_daily_loss:
+        if total_daily_risk_pnl < -max_daily_loss:
             return False, (
-                f"Daily drawdown limit hit: ${daily_pnl:.2f} loss "
+                f"Daily drawdown limit hit: ${total_daily_risk_pnl:.2f} "
+                f"(realized ${daily_pnl:.2f}, open ${open_pnl:.2f}) "
                 f"(limit: -${max_daily_loss:.0f})"
             )
 
@@ -107,15 +110,20 @@ class PositionTracker:
         Check if a position must be force-closed by a hard rule.
         Returns (must_exit: bool, reason: str)
         """
-        # ── Grace period: never fire hard rules within 10 minutes of opening
-        # Gives price data time to stabilize after entry
+        if current_option_price is None or current_option_price <= 0:
+            logger.warning(
+                f"No valid option price for {position.get('ticker')} "
+                f"position #{position.get('id')} — skipping hard exit evaluation"
+            )
+            return False, "STALE_QUOTE"
+
+        # Track age for sanity thresholds, but do not suppress stops/targets
+        # purely because a position is new.
         entry_time = position.get("entry_time", "")
+        entry_dt = None
         if entry_time:
             try:
                 entry_dt   = datetime.fromisoformat(entry_time)
-                secs_held  = (datetime.now() - entry_dt).total_seconds()
-                if secs_held < 600:
-                    return False, ""   # too early — give it 10 minutes
             except Exception:
                 pass
 
