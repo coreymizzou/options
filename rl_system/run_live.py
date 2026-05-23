@@ -1572,6 +1572,11 @@ def evaluate_new_candidates(
         ticker = scanner_result.get("ticker", "?").upper()
         scanner_result["regime_data"] = regime
 
+        if auto_mode and hasattr(cfg, "AUTO_ALLOWED_TICKERS"):
+            if ticker not in cfg.AUTO_ALLOWED_TICKERS:
+                logger.info(f"  {ticker} skipped — not in AUTO_ALLOWED_TICKERS")
+                continue
+
         # Skip if already in a position on this ticker
         if tracker.is_open(ticker):
             # Don't reset action state here — let it expire naturally
