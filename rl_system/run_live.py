@@ -968,6 +968,66 @@ def check_oi_confirms_flow(scanner_result: Dict) -> tuple:
         return False,                f"OI {oi_change:,} ({pct_change:+.1f}%) — likely CLOSING flow, not new position"
 
 
+def _record_broker_order(
+    oid: str,
+    order_kind: str,
+    status: str,
+    ticker: str,
+    side: str,
+    strategy: str,
+    option_type: str,
+    strike: float,
+    expiration: str,
+    quantity: int,
+    limit_price: float,
+    client_order_id: str = None,
+    position_id: int = None,
+    raw_payload: dict = None,
+    notes: str = "",
+):
+    """Persist broker order lifecycle state without interrupting trading flow."""
+    if not oid:
+        return
+    try:
+        db.upsert_order({
+            "broker_order_id": oid,
+            "client_order_id": client_order_id,
+            "order_kind": order_kind,
+            "status": status,
+            "ticker": ticker,
+            "position_id": position_id,
+            "side": side,
+            "strategy": strategy,
+            "option_type": option_type,
+            "strike": strike,
+            "expiration": expiration,
+            "quantity": quantity,
+            "limit_price": limit_price,
+            "raw_payload": raw_payload or {},
+            "notes": notes,
+        })
+    except Exception as e:
+        logger.warning(f"Order state write failed for {oid}: {e}")
+
+
+def _update_broker_order(oid: str, status: str, filled_price: float = None,
+                         position_id: int = None, raw_payload: dict = None,
+                         notes: str = None):
+    if not oid:
+        return
+    try:
+        db.update_order_status(
+            oid,
+            status=status,
+            filled_price=filled_price,
+            position_id=position_id,
+            raw_payload=raw_payload,
+            notes=notes,
+        )
+    except Exception as e:
+        logger.warning(f"Order state update failed for {oid}: {e}")
+
+
 # =============================================================================
 #  CORE LOOP FUNCTIONS
 # =============================================================================
@@ -1134,6 +1194,22 @@ def evaluate_open_positions(
                             market_order = True
                         )
                     if ok:
+                        _record_broker_order(
+                            oid=oid,
+                            order_kind="EXIT",
+                            status="SUBMITTED",
+                            ticker=ticker,
+                            side="sell_to_close",
+                            strategy=position.get("strategy"),
+                            option_type=position.get("option_type", "call"),
+                            strike=position.get("strike", 0),
+                            expiration=position.get("expiration", ""),
+                            quantity=position.get("contracts", 1),
+                            limit_price=current_option_price,
+                            position_id=position_id,
+                            raw_payload={"exit_reason": hard_reason, "market_order": True},
+                            notes="hard_exit",
+                        )
                         logger.info(f"  Closing order placed for {ticker} order={oid} — waiting for broker fill confirmation")
                         if pending_exit_orders is not None:
                             pending_exit_orders[oid] = {
@@ -1339,6 +1415,22 @@ def evaluate_open_positions(
                             market_order = True
                         )
                     if ok:
+                        _record_broker_order(
+                            oid=oid,
+                            order_kind="EXIT",
+                            status="SUBMITTED",
+                            ticker=ticker,
+                            side="sell_to_close",
+                            strategy=position.get("strategy"),
+                            option_type=position.get("option_type", "call"),
+                            strike=position.get("strike", 0),
+                            expiration=position.get("expiration", ""),
+                            quantity=position.get("contracts", 1),
+                            limit_price=current_option_price,
+                            position_id=position_id,
+                            raw_payload={"exit_reason": "AGENT_EXIT", "market_order": True},
+                            notes="agent_exit",
+                        )
                         logger.info(f"  Exit order placed for {ticker} order={oid} — waiting for broker fill confirmation")
                         if pending_exit_orders is not None:
                             pending_exit_orders[oid] = {
@@ -1616,6 +1708,35 @@ def evaluate_new_candidates(
         if tier2_notes:
             reasons = tier2_notes + reasons
 
+        trade = scanner_result.get("trade", {})
+        pricing = scanner_result.get("pricing", {})
+        main_leg = trade.get("main_leg", {})
+        flow_conf = flow[0].get("dir_confidence") if flow else "none"
+        regime_name = snapshot.get("regime")
+        candidate_eval_id = None
+        try:
+            candidate_eval_id = db.insert_candidate_evaluation({
+                "timestamp": snapshot["timestamp"],
+                "ticker": ticker,
+                "strategy": trade.get("strategy"),
+                "direction": trade.get("direction"),
+                "strike": main_leg.get("strike"),
+                "expiration": main_leg.get("exp") or trade.get("exp"),
+                "action": action,
+                "confidence": confidence,
+                "confluence_score": scanner_result.get("confluence", {}).get("score"),
+                "flow_confidence": flow_conf,
+                "ivr": scanner_result.get("vol", {}).get("ivr"),
+                "regime": regime_name,
+                "above_vwap": 1 if snapshot.get("above_vwap") else 0,
+                "entry_price": pricing.get("entry"),
+                "reasons": reasons[:8],
+                "market_snapshot": snapshot,
+                "raw_scanner_data": scanner_result,
+            })
+        except Exception as e:
+            logger.warning(f"Candidate evaluation log failed for {ticker}: {e}")
+
         key = f"entry_{ticker}"
         changed = action_state.has_changed(key, action)
         _just_tracked = False   # initialize here — set True if user confirms fill
@@ -1632,9 +1753,6 @@ def evaluate_new_candidates(
         )
 
         if should_notify:
-            pricing  = scanner_result.get("pricing", {})
-            trade    = scanner_result.get("trade", {})
-            main_leg = trade.get("main_leg", {})
             short_leg = trade.get("short_leg", {})
             strategy  = trade.get("strategy", "")
             exp       = main_leg.get("exp") or trade.get("exp")
@@ -1807,11 +1925,32 @@ def evaluate_new_candidates(
                                 )
 
                             if ok:
+                                _record_broker_order(
+                                    oid=oid,
+                                    order_kind="ENTRY",
+                                    status="SUBMITTED",
+                                    ticker=ticker,
+                                    side="buy_to_open",
+                                    strategy=strategy_,
+                                    option_type=main_.get("option_type", "call"),
+                                    strike=main_.get("strike", 0),
+                                    expiration=exp_,
+                                    quantity=contracts_,
+                                    limit_price=fill_price_,
+                                    client_order_id=unique_tag,
+                                    raw_payload={
+                                        "is_spread": is_spread,
+                                        "short_strike": short_.get("strike") if short_ else None,
+                                        "candidate_evaluation_id": candidate_eval_id,
+                                    },
+                                    notes="entry_submitted",
+                                )
                                 # Order placed — queue for reconciliation, don't block the loop
                                 print(f"  [LIVE-PAPER] Order {oid} placed for {ticker} @ ${fill_price_:.2f} — queued for reconciliation")
                                 if pending_orders is not None:
                                     pdata = _pos_data.copy()
                                     pdata["limit_price"] = fill_price_  # actual placed limit, not cached scanner price
+                                    pdata["candidate_evaluation_id"] = candidate_eval_id
                                     pending_orders[oid] = pdata
                                     save_pending_orders(pending_orders)
                             else:
@@ -1856,44 +1995,58 @@ def evaluate_new_candidates(
                 action_state.update(key, "HOLD", confidence)
                 logger.info(f"  {ticker} now tracked — action state set to HOLD")
 
-            rec_id = db.insert_recommendation({
-                "timestamp":       snapshot["timestamp"],
-                "ticker":          ticker,
-                "strategy":        trade.get("strategy"),
-                "direction":       trade.get("direction"),
-                "strike":          trade.get("main_leg", {}).get("strike"),
-                "expiration":      trade.get("exp"),
-                "action":          action,
-                "confidence":      confidence,
-                "reasons":         _json_dumps(reasons[:5]),
-                "market_snapshot": _json_dumps(snapshot),
-                "notified_user":   1,
-                "position_id":     position_id
-            })
-
-            db.log_journal_event(
-                "ENTRY_REC",
-                ticker=ticker,
-                action=action,
-                confidence=confidence,
-                reason_summary=f"ENTER {ticker} conf={confidence:.2f}",
-                details={
-                    "reasons":    reasons[:5],
-                    "entry":      pricing.get("entry"),
-                    "stop":       pricing.get("stop"),
-                    "target":     pricing.get("target"),
-                    "strategy":   trade.get("strategy"),
-                    "confluence": scanner_result.get("confluence", {}).get("score"),
-                    "rec_id":     rec_id,
-                    "tracked":    position_id is not None
-                }
-            )
-
         # Only update action state if we didn't already handle it above
         # If we notified (should_notify=True), state was already set inside the block
         # If exploration tick, don't update state — real signal may fire next tick
         if not should_notify and not is_explore_tick:
             action_state.update(key, action, confidence)
+
+        rec_id = db.insert_recommendation({
+            "timestamp":       snapshot["timestamp"],
+            "ticker":          ticker,
+            "strategy":        trade.get("strategy"),
+            "direction":       trade.get("direction"),
+            "strike":          main_leg.get("strike"),
+            "expiration":      main_leg.get("exp") or trade.get("exp"),
+            "action":          action,
+            "confidence":      confidence,
+            "reasons":         _json_dumps(reasons[:5]),
+            "market_snapshot": _json_dumps(snapshot),
+            "notified_user":   1 if should_notify else 0,
+            "position_id":     position_id
+        })
+
+        if candidate_eval_id:
+            try:
+                with db.get_connection() as conn:
+                    conn.execute(
+                        """UPDATE candidate_evaluations
+                           SET recommendation_id = ?, position_id = ?
+                           WHERE id = ?""",
+                        (rec_id, position_id, candidate_eval_id)
+                    )
+            except Exception as e:
+                logger.warning(f"Candidate evaluation link failed for {ticker}: {e}")
+
+        db.log_journal_event(
+            "ENTRY_REC",
+            ticker=ticker,
+            action=action,
+            confidence=confidence,
+            reason_summary=f"{action} {ticker} conf={confidence:.2f}",
+            details={
+                "reasons":    reasons[:5],
+                "entry":      pricing.get("entry"),
+                "stop":       pricing.get("stop"),
+                "target":     pricing.get("target"),
+                "strategy":   trade.get("strategy"),
+                "confluence": scanner_result.get("confluence", {}).get("score"),
+                "rec_id":     rec_id,
+                "candidate_eval_id": candidate_eval_id,
+                "notified":   should_notify,
+                "tracked":    position_id is not None
+            }
+        )
 
         if DEBUG_MODE or (changed and action == "ENTER"):
             logger.info(
@@ -2742,6 +2895,26 @@ def main():
                             matched_data["target_price"] = round(fill_price * (1 + cfg.PROFIT_TARGET_PCT), 2)
                             pid = db.insert_position(matched_data)
                             if pid:
+                                candidate_eval_id = matched_data.get("candidate_evaluation_id")
+                                if candidate_eval_id:
+                                    try:
+                                        with db.get_connection() as conn:
+                                            conn.execute(
+                                                "UPDATE candidate_evaluations SET position_id = ? WHERE id = ?",
+                                                (pid, candidate_eval_id)
+                                            )
+                                    except Exception as e:
+                                        logger.warning(
+                                            f"Startup candidate evaluation link failed for {matched_data.get('ticker')}: {e}"
+                                        )
+                                _update_broker_order(
+                                    matched_oid,
+                                    "FILLED",
+                                    filled_price=fill_price,
+                                    position_id=pid,
+                                    raw_payload=ap,
+                                    notes="startup_sync_fill",
+                                )
                                 loaded = db.get_position_by_id(pid)
                                 if loaded:
                                     tracker._open[pid] = loaded
@@ -2822,6 +2995,14 @@ def main():
                                 fill_price = float(exit_data.get("estimated_exit_price", 0) or 0)
                             position = tracker.get_position(position_id) or exit_data.get("position", {})
                             if position and fill_price > 0:
+                                _update_broker_order(
+                                    oid,
+                                    "FILLED",
+                                    filled_price=fill_price,
+                                    position_id=position_id,
+                                    raw_payload=order,
+                                    notes="exit_fill_confirmed",
+                                )
                                 result = tracker.close_position(
                                     position_id,
                                     fill_price,
@@ -2851,6 +3032,19 @@ def main():
                                 print(f"  [RECONCILE] Exit fill confirmed — CLOSED {ticker_r} #{position_id} @ ${fill_price:.2f} order={oid}")
                             resolved_exit_oids.append(oid)
                         elif status in ("canceled", "cancelled", "rejected", "expired"):
+                            mapped_status = {
+                                "canceled": "CANCELLED",
+                                "cancelled": "CANCELLED",
+                                "rejected": "REJECTED",
+                                "expired": "EXPIRED",
+                            }.get(status, status.upper())
+                            _update_broker_order(
+                                oid,
+                                mapped_status,
+                                position_id=position_id,
+                                raw_payload=order,
+                                notes="exit_not_filled",
+                            )
                             logger.warning(
                                 f"  Pending exit order {oid} for {ticker_r} {status}; "
                                 "position remains open"
@@ -2888,6 +3082,7 @@ def main():
                             # Cancel if older than market close (6.5 hours from open)
                             if age_hours > 6.5:
                                 broker.cancel_order(oid)
+                                _update_broker_order(oid, "CANCELLED", notes="entry_order_age_cancelled")
                                 logger.info(f"  [RECONCILE] Cancelled stale order {oid} ({pos_data.get('ticker')} aged {age_hours:.1f}h)")
                                 ticker_r = pos_data.get("ticker", "")
                                 if ticker_r:
@@ -2913,6 +3108,7 @@ def main():
                                 limit_price = pos_data.get("limit_price", pos_data.get("entry_price", 0))
                                 if live_ask > 0 and limit_price > 0 and live_ask > limit_price * 1.20:
                                     broker.cancel_order(oid)
+                                    _update_broker_order(oid, "CANCELLED", notes="entry_order_drift_cancelled")
                                     logger.info(f"  [RECONCILE] Cancelled {ticker_r} order {oid} — price drifted too far (limit=${limit_price:.2f} ask=${live_ask:.2f})")
                                     # Cooldown ticker so it doesn't re-enter this session
                                     from datetime import timedelta
@@ -2943,6 +3139,26 @@ def main():
                                     from database import insert_position as _ins2
                                     pid = _ins2(pos_data)
                                     if pid:
+                                        candidate_eval_id = pos_data.get("candidate_evaluation_id")
+                                        if candidate_eval_id:
+                                            try:
+                                                with db.get_connection() as conn:
+                                                    conn.execute(
+                                                        "UPDATE candidate_evaluations SET position_id = ? WHERE id = ?",
+                                                        (pid, candidate_eval_id)
+                                                    )
+                                            except Exception as e:
+                                                logger.warning(
+                                                    f"Candidate evaluation fill link failed for {ticker_r}: {e}"
+                                                )
+                                        _update_broker_order(
+                                            oid,
+                                            "FILLED",
+                                            filled_price=fill_price,
+                                            position_id=pid,
+                                            raw_payload=order,
+                                            notes="entry_fill_confirmed",
+                                        )
                                         loaded = db.get_position_by_id(pid)
                                         if loaded:
                                             tracker._open[pid] = loaded
@@ -2959,10 +3175,23 @@ def main():
                                                 other_cost = other_data.get("entry_price", 0) * 100 * other_data.get("contracts", 1)
                                                 if other_cost > BANKROLL[0]:
                                                     broker.cancel_order(other_oid)
+                                                    _update_broker_order(other_oid, "CANCELLED", notes="bankroll_overdraw_cancelled")
                                                     filled_oids.append(other_oid)
                                                     print(f"  [BANKROLL] Cancelled pending {other_data.get('ticker')} order {other_oid} — would overdraw bankroll (need ${other_cost:.2f}, have ${BANKROLL[0]:.2f})")
                                 filled_oids.append(oid)
                             elif status in ("canceled", "cancelled", "rejected", "expired"):
+                                mapped_status = {
+                                    "canceled": "CANCELLED",
+                                    "cancelled": "CANCELLED",
+                                    "rejected": "REJECTED",
+                                    "expired": "EXPIRED",
+                                }.get(status, status.upper())
+                                _update_broker_order(
+                                    oid,
+                                    mapped_status,
+                                    raw_payload=order,
+                                    notes="entry_not_filled",
+                                )
                                 logger.info(f"  Pending order {oid} {status} — removing from reconciliation queue")
                                 filled_oids.append(oid)
                     for oid in filled_oids:
