@@ -1092,7 +1092,12 @@ def run_scanner(paper_mode: bool, regime: Dict) -> List[Dict]:
             return _reject("theoretical_data")
         if trade.get("short_leg_synthetic"):
             return _reject("synthetic_short_leg")
-        if r.get("confluence", {}).get("score", 0) < cfg.MIN_CONFLUENCE_SCORE_TO_ENTER:
+        min_score = getattr(
+            cfg,
+            "MIN_CONFLUENCE_SCORE_TO_EVALUATE",
+            cfg.MIN_CONFLUENCE_SCORE_TO_ENTER,
+        )
+        if r.get("confluence", {}).get("score", 0) < min_score:
             return _reject("low_confluence")
         if not trade.get("main_leg", {}).get("strike"):
             return _reject("missing_strike")
@@ -1128,7 +1133,7 @@ def run_scanner(paper_mode: bool, regime: Dict) -> List[Dict]:
                 "valid": len(valid),
                 "rejections": rejection_counts,
                 "top_candidates": top_candidates,
-                "min_confluence": cfg.MIN_CONFLUENCE_SCORE_TO_ENTER,
+                "min_confluence": min_score,
                 "regime": regime,
             },
         )
@@ -1832,10 +1837,15 @@ def evaluate_new_candidates(
 
         # Auto mode: enter regardless of whether action state changed
         # should_notify gates user alerts but not autonomous entries
+        confluence_score = scanner_result.get("confluence", {}).get("score", 0) or 0
+        enter_threshold = cfg.ENTER_CONFIDENCE_THRESHOLD
+        if confluence_score <= getattr(cfg, "MODERATE_CONFLUENCE_MAX_SCORE", 6):
+            enter_threshold += getattr(cfg, "MODERATE_CONFLUENCE_CONFIDENCE_BONUS", 0.0)
+
         should_enter = (
             auto_mode and
             action == "ENTER" and
-            confidence >= cfg.ENTER_CONFIDENCE_THRESHOLD and
+            confidence >= enter_threshold and
             not is_explore_tick
         )
 
@@ -2138,6 +2148,7 @@ def evaluate_new_candidates(
                 "rec_id":     rec_id,
                 "candidate_eval_id": candidate_eval_id,
                 "notified":   should_notify,
+                "auto_entry_threshold": enter_threshold,
                 "tracked":    position_id is not None
             }
         )
@@ -2145,7 +2156,8 @@ def evaluate_new_candidates(
         if DEBUG_MODE or (changed and action == "ENTER"):
             logger.info(
                 f"  Candidate {ticker}: {action} conf={confidence:.2f} "
-                f"(confluence {scanner_result.get('confluence', {}).get('score', 0)}pts)"
+                f"(confluence {scanner_result.get('confluence', {}).get('score', 0)}pts, "
+                f"entry_threshold={enter_threshold:.2f})"
             )
 
         actions_taken.append({
