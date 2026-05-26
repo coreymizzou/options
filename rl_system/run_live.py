@@ -35,10 +35,12 @@ from typing import Dict, List, Optional
 # Adjust SCANNER_DIR if your layout differs.
 SCANNER_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(SCANNER_DIR))
+REPO_ROOT = SCANNER_DIR.resolve()
 
 # ─── Local imports ────────────────────────────────────────────────────────────
 import config as cfg
-cfg.DB_PATH = "./scanner_data_live.db"  # Separate DB for mid-price live simulation
+cfg.DB_PATH = str(REPO_ROOT / "scanner_data_live.db")  # Separate DB for mid-price live simulation
+cfg.LOG_DIR = str(REPO_ROOT / "logs")
 import database as db
 # Broker is imported dynamically based on --broker flag
 # Default to alpaca broker; overridden after arg parsing
@@ -1076,25 +1078,67 @@ def run_scanner(paper_mode: bool, regime: Dict) -> List[Dict]:
         except Exception as e:
             logger.warning(f"Scanner error on {ticker}: {e}")
 
+    rejection_counts: Dict[str, int] = {}
+
+    def _reject(reason: str) -> bool:
+        rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
+        return False
+
     def _valid_scanner_result(r: Dict) -> bool:
         trade = r.get("trade", {})
         if r.get("error"):
-            return False
+            return _reject("scanner_error")
         if "THEORETICAL" in str(trade.get("data_quality", "")).upper():
-            return False
+            return _reject("theoretical_data")
         if trade.get("short_leg_synthetic"):
-            return False
+            return _reject("synthetic_short_leg")
         if r.get("confluence", {}).get("score", 0) < cfg.MIN_CONFLUENCE_SCORE_TO_ENTER:
-            return False
+            return _reject("low_confluence")
         if not trade.get("main_leg", {}).get("strike"):
-            return False
+            return _reject("missing_strike")
         if (r.get("pricing", {}).get("entry") or 0) < 0.50:
-            return False
+            return _reject("entry_price_too_low")
         return True
 
     valid = [r for r in results if _valid_scanner_result(r)]
+    top_candidates = []
+    for r in sorted(
+        results,
+        key=lambda item: item.get("confluence", {}).get("score", 0),
+        reverse=True,
+    )[:5]:
+        top_candidates.append({
+            "ticker": r.get("ticker"),
+            "strategy": r.get("trade", {}).get("strategy"),
+            "direction": r.get("trade", {}).get("direction"),
+            "score": r.get("confluence", {}).get("score"),
+            "entry": r.get("pricing", {}).get("entry"),
+            "data_quality": r.get("trade", {}).get("data_quality"),
+            "error": r.get("error"),
+        })
+    try:
+        db.log_journal_event(
+            "SCANNER_REFRESH",
+            reason_summary=(
+                f"Scanner refreshed: {len(results)} scanned, "
+                f"{len(valid)} valid candidates"
+            ),
+            details={
+                "scanned": len(results),
+                "valid": len(valid),
+                "rejections": rejection_counts,
+                "top_candidates": top_candidates,
+                "min_confluence": cfg.MIN_CONFLUENCE_SCORE_TO_ENTER,
+                "regime": regime,
+            },
+        )
+    except Exception as e:
+        logger.warning(f"Scanner refresh journal failed: {e}")
 
-    logger.info(f"Scanner complete: {len(results)} scanned, {len(valid)} meet threshold")
+    logger.info(
+        f"Scanner complete: {len(results)} scanned, {len(valid)} meet threshold, "
+        f"rejections={rejection_counts}"
+    )
     return sorted(valid, key=lambda r: r.get("confluence", {}).get("score", 0), reverse=True)
 
 
@@ -1612,9 +1656,11 @@ def evaluate_new_candidates(
             # again after the position closes
             continue
 
-        # Skip if last action for this ticker was already ENTER
+        # Manual mode uses action state to suppress repeat alerts. Auto/live-paper
+        # must still evaluate recurring ENTER signals; open positions and pending
+        # orders are the duplicate-entry guards there.
         last_action = action_state.get_last(f"entry_{ticker}")
-        if last_action == "ENTER":
+        if not auto_mode and last_action == "ENTER":
             logger.debug(f"  {ticker} skipped — action state is ENTER")
             continue
 
@@ -1797,6 +1843,7 @@ def evaluate_new_candidates(
             short_leg = trade.get("short_leg", {})
             strategy  = trade.get("strategy", "")
             exp       = main_leg.get("exp") or trade.get("exp")
+            entry_order_submitted = False
 
             # Infer option type from strategy name — more reliable than main_leg data
             # BEAR strategies use puts, BULL strategies use calls
@@ -1967,6 +2014,7 @@ def evaluate_new_candidates(
                                 )
 
                             if ok:
+                                entry_order_submitted = True
                                 _record_broker_order(
                                     oid=oid,
                                     order_kind="ENTRY",
@@ -2036,11 +2084,15 @@ def evaluate_new_candidates(
             if _just_tracked:
                 action_state.update(key, "HOLD", confidence)
                 logger.info(f"  {ticker} now tracked — action state set to HOLD")
+            elif entry_order_submitted:
+                action_state.update(key, "ENTER_PENDING", confidence)
+                logger.info(f"  {ticker} entry order pending — action state set to ENTER_PENDING")
+            elif should_notify:
+                action_state.update(key, action, confidence)
 
         # Only update action state if we didn't already handle it above
-        # If we notified (should_notify=True), state was already set inside the block
         # If exploration tick, don't update state — real signal may fire next tick
-        if not should_notify and not is_explore_tick:
+        if not (should_notify or should_enter) and not is_explore_tick:
             action_state.update(key, action, confidence)
 
         rec_id = db.insert_recommendation({
@@ -2713,6 +2765,13 @@ def main():
 
     # ── Initialize
     db.initialize_database()
+    logger.info(
+        "Runtime paths: repo=%s cwd=%s db=%s log_dir=%s",
+        REPO_ROOT,
+        Path.cwd(),
+        cfg.DB_PATH,
+        cfg.LOG_DIR,
+    )
 
     # ── One-shot pre-init commands (no keys needed)
     if args.reset:
@@ -2813,6 +2872,10 @@ def main():
             "exit_model_updates":  agent.exit_model.n_updates,
             "bankroll_start":      args.bankroll,
             "bankroll_current":    args.bankroll,
+            "repo_root":           str(REPO_ROOT),
+            "cwd":                 str(Path.cwd()),
+            "db_path":             cfg.DB_PATH,
+            "log_dir":             cfg.LOG_DIR,
         }
     )
 
