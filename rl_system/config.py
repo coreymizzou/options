@@ -66,6 +66,7 @@ MODERATE_CONFLUENCE_CONFIDENCE_BONUS = 0.07
 ENTER_CONFIDENCE_THRESHOLD   = 0.55  # Agent confidence required to recommend ENTER
 EXIT_CONFIDENCE_THRESHOLD    = 0.55  # Agent confidence required to recommend EXIT
 HOLD_IS_DEFAULT              = True  # When uncertain, default to HOLD not EXIT
+LOG_SCANNER_SCORECARD       = True  # Log per-ticker scanner scores each refresh
 
 # ─── Drawdown Controls ───────────────────────────────────────────────────────
 MAX_DAILY_DRAWDOWN_PCT  = 0.06   # Force no new entries if daily P&L down > 6% of account

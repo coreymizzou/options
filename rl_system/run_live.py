@@ -1078,13 +1078,19 @@ def run_scanner(paper_mode: bool, regime: Dict) -> List[Dict]:
         except Exception as e:
             logger.warning(f"Scanner error on {ticker}: {e}")
 
+    min_score = getattr(
+        cfg,
+        "MIN_CONFLUENCE_SCORE_TO_EVALUATE",
+        cfg.MIN_CONFLUENCE_SCORE_TO_ENTER,
+    )
     rejection_counts: Dict[str, int] = {}
+    scorecard = []
 
-    def _reject(reason: str) -> bool:
+    def _reject(reason: str) -> str:
         rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
-        return False
+        return reason
 
-    def _valid_scanner_result(r: Dict) -> bool:
+    def _scanner_reject_reason(r: Dict) -> Optional[str]:
         trade = r.get("trade", {})
         if r.get("error"):
             return _reject("scanner_error")
@@ -1092,20 +1098,52 @@ def run_scanner(paper_mode: bool, regime: Dict) -> List[Dict]:
             return _reject("theoretical_data")
         if trade.get("short_leg_synthetic"):
             return _reject("synthetic_short_leg")
-        min_score = getattr(
-            cfg,
-            "MIN_CONFLUENCE_SCORE_TO_EVALUATE",
-            cfg.MIN_CONFLUENCE_SCORE_TO_ENTER,
-        )
         if r.get("confluence", {}).get("score", 0) < min_score:
             return _reject("low_confluence")
         if not trade.get("main_leg", {}).get("strike"):
             return _reject("missing_strike")
         if (r.get("pricing", {}).get("entry") or 0) < 0.50:
             return _reject("entry_price_too_low")
-        return True
+        return None
 
-    valid = [r for r in results if _valid_scanner_result(r)]
+    valid = []
+    for r in results:
+        reject_reason = _scanner_reject_reason(r)
+        if reject_reason is None:
+            valid.append(r)
+        scorecard.append({
+            "ticker": r.get("ticker"),
+            "score": r.get("confluence", {}).get("score"),
+            "rating": r.get("confluence", {}).get("rating"),
+            "strategy": r.get("trade", {}).get("strategy"),
+            "direction": r.get("trade", {}).get("direction"),
+            "entry": r.get("pricing", {}).get("entry"),
+            "data_source": r.get("data_source"),
+            "data_quality": r.get("trade", {}).get("data_quality"),
+            "reject_reason": reject_reason,
+            "error": r.get("error"),
+        })
+
+    if getattr(cfg, "LOG_SCANNER_SCORECARD", True) and scorecard:
+        logger.info("Scanner scorecard (min_score=%s):", min_score)
+        for row in sorted(
+            scorecard,
+            key=lambda item: item.get("score") if item.get("score") is not None else -999,
+            reverse=True,
+        ):
+            status = "PASS" if not row["reject_reason"] else f"REJECT:{row['reject_reason']}"
+            logger.info(
+                "  %-5s score=%s %-10s %-16s %-7s entry=%s source=%s %s",
+                row.get("ticker") or "?",
+                row.get("score"),
+                row.get("rating") or "?",
+                row.get("strategy") or "?",
+                row.get("direction") or "?",
+                row.get("entry"),
+                row.get("data_source") or "?",
+                status,
+            )
+
     top_candidates = []
     for r in sorted(
         results,
@@ -1132,6 +1170,7 @@ def run_scanner(paper_mode: bool, regime: Dict) -> List[Dict]:
                 "scanned": len(results),
                 "valid": len(valid),
                 "rejections": rejection_counts,
+                "scorecard": scorecard,
                 "top_candidates": top_candidates,
                 "min_confluence": min_score,
                 "regime": regime,
