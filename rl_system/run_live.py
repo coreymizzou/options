@@ -2144,12 +2144,38 @@ def evaluate_new_candidates(
                         # Refresh price from Tradier immediately before order — scanner data may be stale
                         if SCANNER_AVAILABLE:
                             try:
-                                occ_symbol = broker.build_option_symbol(
-                                    ticker, exp_, main_.get("option_type", "call"), main_.get("strike", 0)
-                                )
-                                fresh = get_live_option_quote(occ_symbol) if get_live_option_quote else {}
-                                # run_live.py always uses mid for price discipline
-                                use_price = fresh.get("mid", 0)
+                                is_spread_refresh = "SPREAD" in strategy_ and short_
+                                fresh = {}
+                                if is_spread_refresh:
+                                    long_symbol = broker.build_option_symbol(
+                                        ticker, exp_, main_.get("option_type", "call"), main_.get("strike", 0)
+                                    )
+                                    short_symbol = broker.build_option_symbol(
+                                        ticker,
+                                        exp_,
+                                        short_.get("option_type") or main_.get("option_type", "call"),
+                                        short_.get("strike", 0)
+                                    )
+                                    long_q = get_live_option_quote(long_symbol) if get_live_option_quote else {}
+                                    short_q = get_live_option_quote(short_symbol) if get_live_option_quote else {}
+                                    if long_q.get("mid", 0) > 0 and short_q.get("mid", 0) > 0:
+                                        use_price = round(max(long_q["mid"] - short_q["mid"], 0.01), 2)
+                                        fresh = {
+                                            "bid": round(max(long_q.get("bid", 0) - short_q.get("ask", 0), 0.01), 2),
+                                            "ask": round(max(long_q.get("ask", 0) - short_q.get("bid", 0), 0.01), 2),
+                                            "mid": use_price,
+                                            "long_mid": long_q["mid"],
+                                            "short_mid": short_q["mid"],
+                                        }
+                                    else:
+                                        use_price = 0
+                                else:
+                                    occ_symbol = broker.build_option_symbol(
+                                        ticker, exp_, main_.get("option_type", "call"), main_.get("strike", 0)
+                                    )
+                                    fresh = get_live_option_quote(occ_symbol) if get_live_option_quote else {}
+                                    # run_live.py always uses mid for price discipline
+                                    use_price = fresh.get("mid", 0)
                                 if use_price > 0:
                                     stale_price = fill_price_
                                     # Sanity check — if refreshed price diverges >40% from scanner price, skip trade
@@ -3493,6 +3519,24 @@ def main():
                             if get_live_option_quote and occ_sym and is_market_hours_for_entry():
                                 live_q = get_live_option_quote(occ_sym)
                                 live_ask = live_q.get("ask", 0)
+                                strategy_r = (pos_data.get("strategy") or "").upper()
+                                if "SPREAD" in strategy_r:
+                                    try:
+                                        notes = json.loads(pos_data.get("notes") or "{}")
+                                        short_strike = notes.get("short_strike")
+                                        short_type = notes.get("short_option_type") or pos_data.get("option_type", "call")
+                                        if short_strike:
+                                            short_occ = broker.build_option_symbol(
+                                                ticker_r, pos_data.get("expiration", ""),
+                                                short_type, short_strike
+                                            )
+                                            short_q = get_live_option_quote(short_occ) if short_occ else {}
+                                            if live_q.get("ask", 0) > 0 and short_q.get("bid", 0) > 0:
+                                                live_ask = round(max(live_q["ask"] - short_q["bid"], 0.01), 2)
+                                            else:
+                                                live_ask = 0
+                                    except Exception:
+                                        live_ask = 0
                                 limit_price = pos_data.get("limit_price", pos_data.get("entry_price", 0))
                                 if live_ask > 0 and limit_price > 0 and live_ask > limit_price * 1.20:
                                     broker.cancel_order(oid)
