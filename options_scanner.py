@@ -55,8 +55,11 @@ REQUIRED_PACKAGES = [
 ]
 
 def install_packages():
+    import_names = {
+        "python-dateutil": "dateutil",
+    }
     for pkg in REQUIRED_PACKAGES:
-        import_name = pkg.replace("-", "_")
+        import_name = import_names.get(pkg, pkg.replace("-", "_"))
         try:
             __import__(import_name)
         except ImportError:
@@ -483,6 +486,30 @@ def filter_chain_by_dte(chain_data: dict, min_dte: int = MIN_OPTION_DTE) -> dict
         except Exception:
             continue
     return filtered
+
+def contracts_for_expiration(chain_data: dict, exp: str, option_type: str) -> list:
+    """
+    Return contracts for one expiration/side from either supported chain shape.
+
+    yfinance stores each expiration as {"calls": [...], "puts": [...]}.
+    Tradier stores each expiration as one flat list with option_type on rows.
+    Trade construction must support both or live Tradier chains fail before
+    the agent ever sees candidates.
+    """
+    data = chain_data.get(exp)
+    if not data:
+        return []
+    side_key = option_type.lower() + "s"
+    if isinstance(data, dict):
+        return data.get(side_key, []) or []
+    if isinstance(data, list):
+        contracts = []
+        for contract in data:
+            row_type = str(contract.get("option_type", "")).lower()
+            if row_type == option_type.lower():
+                contracts.append(contract)
+        return contracts
+    return []
 
 def get_live_option_quote(symbol: str) -> dict:
     """
@@ -969,9 +996,7 @@ def find_best_strike(chain_data: dict, exp: str, spot: float, direction: str,
     try:
         if exp not in chain_data:
             return {}
-        data = chain_data[exp]
-
-        contracts = data.get(option_type + "s", []) if isinstance(data, dict) else []
+        contracts = contracts_for_expiration(chain_data, exp, option_type)
 
         r = 0.045
         exp_dt = datetime.strptime(exp, "%Y-%m-%d")
@@ -1362,7 +1387,7 @@ def construct_trade(
         # Delta targeting can return a strike on the wrong side of the long leg
         short_leg = None
         if best_exp in chain_data:
-            contracts_list = chain_data[best_exp].get(opt_type + "s", [])
+            contracts_list = contracts_for_expiration(chain_data, best_exp, opt_type)
             valid_shorts = []
             for c in contracts_list:
                 K   = float(c.get("strike", 0))
