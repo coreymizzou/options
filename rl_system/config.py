@@ -68,6 +68,13 @@ EXIT_CONFIDENCE_THRESHOLD    = 0.55  # Agent confidence required to recommend EX
 HOLD_IS_DEFAULT              = True  # When uncertain, default to HOLD not EXIT
 LOG_SCANNER_SCORECARD       = True  # Log per-ticker scanner scores each refresh
 
+# ─── Supervised Entry Model ──────────────────────────────────────────────────
+ML_ENTRY_MODEL_ENABLED = True
+ML_ENTRY_MODEL_PATH = "rl_system/models/entry_model.pkl"
+ML_MIN_TRAINING_ROWS = 100
+ML_MIN_EXPECTED_R = 0.03          # Require positive expected edge when model is active
+ML_CONFIDENCE_BLEND = 0.35        # Blend model confidence into agent confidence
+
 # ─── Drawdown Controls ───────────────────────────────────────────────────────
 MAX_DAILY_DRAWDOWN_PCT  = 0.06   # Force no new entries if daily P&L down > 6% of account
 MAX_ROLLING_DRAWDOWN_PCT = 0.10  # Penalty trigger for rolling drawdown in reward calc

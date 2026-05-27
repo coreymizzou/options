@@ -56,6 +56,13 @@ from database import (
     save_pending_exit_orders, load_pending_exit_orders,
 )
 from rl_agent import DecisionAgent
+try:
+    import ml_entry_model
+    ML_ENTRY_MODEL_AVAILABLE = True
+except Exception as e:
+    ml_entry_model = None
+    ML_ENTRY_MODEL_AVAILABLE = False
+    print(f"WARNING: ML entry model unavailable: {e}")
 
 # ─── OI cache for change detection (Tier 2 feature) ─────────────────────────
 _oi_cache: Dict[str, int] = {}   # "TICKER:strike:exp:type" → last known OI
@@ -1124,6 +1131,43 @@ def run_scanner(paper_mode: bool, regime: Dict) -> List[Dict]:
             "error": r.get("error"),
         })
 
+    # Persist every scanner row as ML source data, including pre-filter rejects.
+    # This lets the supervised model learn from skipped candidates, not only
+    # trades that reached the agent.
+    for r, row in zip(results, scorecard):
+        try:
+            trade = r.get("trade", {}) or {}
+            main_leg = trade.get("main_leg", {}) or {}
+            pricing = r.get("pricing", {}) or {}
+            flow = r.get("flow", []) or []
+            vol = r.get("vol", {}) or {}
+            db.insert_candidate_evaluation({
+                "timestamp": r.get("timestamp") or datetime.now().isoformat(),
+                "ticker": row.get("ticker"),
+                "strategy": row.get("strategy"),
+                "direction": row.get("direction"),
+                "strike": main_leg.get("strike"),
+                "expiration": main_leg.get("exp") or trade.get("exp"),
+                "action": "PREFILTER_PASS" if not row.get("reject_reason") else "PREFILTER_REJECT",
+                "confidence": None,
+                "confluence_score": row.get("score"),
+                "flow_confidence": flow[0].get("dir_confidence") if flow else "none",
+                "ivr": vol.get("ivr"),
+                "regime": regime.get("regime"),
+                "above_vwap": 1 if r.get("tech", {}).get("above_vwap") else 0,
+                "entry_price": pricing.get("entry"),
+                "reasons": [row.get("reject_reason")] if row.get("reject_reason") else ["passed_prefilter"],
+                "market_snapshot": {
+                    "regime": regime.get("regime"),
+                    "reject_reason": row.get("reject_reason"),
+                    "data_source": row.get("data_source"),
+                    "data_quality": row.get("data_quality"),
+                },
+                "raw_scanner_data": r,
+            })
+        except Exception as e:
+            logger.debug(f"Scanner scorecard candidate log failed for {row.get('ticker')}: {e}")
+
     if getattr(cfg, "LOG_SCANNER_SCORECARD", True) and scorecard:
         logger.info("Scanner scorecard (min_score=%s):", min_score)
         for row in sorted(
@@ -1808,6 +1852,25 @@ def evaluate_new_candidates(
         # Agent scores the entry
         action, confidence, reasons = agent.score_entry(scanner_result, snapshot)
 
+        ml_prediction = None
+        if ML_ENTRY_MODEL_AVAILABLE and ml_entry_model is not None:
+            ml_prediction = ml_entry_model.score_candidate(scanner_result, snapshot)
+            if ml_prediction:
+                expected_r = ml_prediction["expected_r"]
+                model_conf = ml_prediction["confidence"]
+                blend = getattr(cfg, "ML_CONFIDENCE_BLEND", 0.35)
+                confidence = round((1 - blend) * confidence + blend * model_conf, 3)
+                reasons = [
+                    f"ML expected_R {expected_r:+.2f} "
+                    f"(model_conf {model_conf:.2f}, n={ml_prediction.get('n_samples')})"
+                ] + reasons
+                if expected_r < getattr(cfg, "ML_MIN_EXPECTED_R", 0.0):
+                    action = "WAIT"
+                    reasons = [
+                        f"ML edge below threshold ({expected_r:+.2f}R < "
+                        f"{getattr(cfg, 'ML_MIN_EXPECTED_R', 0.0):+.2f}R)"
+                    ] + reasons
+
         # Inject tier 2 signals into reasons so user sees them in the alert
         tier2_notes = []
         if earnings_warning:
@@ -2188,6 +2251,7 @@ def evaluate_new_candidates(
                 "candidate_eval_id": candidate_eval_id,
                 "notified":   should_notify,
                 "auto_entry_threshold": enter_threshold,
+                "ml_prediction": ml_prediction,
                 "tracked":    position_id is not None
             }
         )
