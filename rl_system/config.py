@@ -59,8 +59,8 @@ NOTIFY_DISCORD_WEBHOOK_URL  = ""     # Set to Discord webhook URL to enable; lea
 # Evaluate MODERATE+ scanner setups, but require stronger agent confidence for
 # lower-confluence candidates. This avoids starving the agent while still
 # keeping weak scanner output away from auto-execution.
-MIN_CONFLUENCE_SCORE_TO_EVALUATE = 5 # Candidate must be MODERATE+ to reach agent
-MIN_CONFLUENCE_SCORE_TO_ENTER    = 5 # Backward-compatible alias for older code paths
+MIN_CONFLUENCE_SCORE_TO_EVALUATE = 9 # Candidate must be very strong to reach agent
+MIN_CONFLUENCE_SCORE_TO_ENTER    = 9 # Backward-compatible alias for older code paths
 MODERATE_CONFLUENCE_MAX_SCORE    = 6 # Scores <= this need extra confidence
 MODERATE_CONFLUENCE_CONFIDENCE_BONUS = 0.07
 ENTER_CONFIDENCE_THRESHOLD   = 0.55  # Agent confidence required to recommend ENTER

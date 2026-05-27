@@ -1254,6 +1254,8 @@ def run_scanner(paper_mode: bool, regime: Dict) -> List[Dict]:
             reverse=True,
         ):
             status = "PASS" if not row["reject_reason"] else f"REJECT:{row['reject_reason']}"
+            if row.get("reject_reason") == "scanner_error" and row.get("error"):
+                status = f"{status} ({str(row['error'])[:120]})"
             logger.info(
                 "  %-5s score=%s %-10s %-16s %-7s entry=%s source=%s %s",
                 row.get("ticker") or "?",
@@ -2029,6 +2031,7 @@ def evaluate_new_candidates(
             not is_explore_tick
         )
 
+        position_id = None
         if should_notify or should_enter:
             short_leg = trade.get("short_leg", {})
             strategy  = trade.get("strategy", "")
@@ -2139,6 +2142,7 @@ def evaluate_new_candidates(
                     actual_fill = fill_price_
                     position_id = None
                     oid = None
+                    order_limit_price = fill_price_
 
                     if live_paper and BROKER_AVAILABLE and broker._is_configured():
                         # Refresh price from Tradier immediately before order — scanner data may be stale
@@ -2160,13 +2164,24 @@ def evaluate_new_candidates(
                                     short_q = get_live_option_quote(short_symbol) if get_live_option_quote else {}
                                     if long_q.get("mid", 0) > 0 and short_q.get("mid", 0) > 0:
                                         use_price = round(max(long_q["mid"] - short_q["mid"], 0.01), 2)
+                                        executable_limit = round(
+                                            max(long_q.get("ask", 0) - short_q.get("bid", 0), 0.01),
+                                            2
+                                        )
                                         fresh = {
                                             "bid": round(max(long_q.get("bid", 0) - short_q.get("ask", 0), 0.01), 2),
-                                            "ask": round(max(long_q.get("ask", 0) - short_q.get("bid", 0), 0.01), 2),
+                                            "ask": executable_limit,
                                             "mid": use_price,
                                             "long_mid": long_q["mid"],
                                             "short_mid": short_q["mid"],
+                                            "long_ask": long_q.get("ask"),
+                                            "short_bid": short_q.get("bid"),
                                         }
+                                        logger.info(
+                                            f"  {ticker} spread legs refreshed: "
+                                            f"long=${long_q['mid']:.2f} short=${short_q['mid']:.2f} "
+                                            f"net_mid=${use_price:.2f} order_limit=${executable_limit:.2f}"
+                                        )
                                     else:
                                         use_price = 0
                                 else:
@@ -2176,6 +2191,8 @@ def evaluate_new_candidates(
                                     fresh = get_live_option_quote(occ_symbol) if get_live_option_quote else {}
                                     # run_live.py always uses mid for price discipline
                                     use_price = fresh.get("mid", 0)
+                                    if fresh.get("ask", 0) > 0:
+                                        fresh["order_limit"] = fresh["ask"]
                                 if use_price > 0:
                                     stale_price = fill_price_
                                     # Sanity check — if refreshed price diverges >40% from scanner price, skip trade
@@ -2186,10 +2203,14 @@ def evaluate_new_candidates(
                                             _just_tracked = False
                                             continue
                                     fill_price_ = use_price
-                                    logger.info(f"  {ticker} price refreshed: ${stale_price:.2f} -> mid ${fill_price_:.2f} (bid=${fresh['bid']:.2f} ask=${fresh['ask']:.2f})")
+                                    order_limit_price = fresh.get("order_limit") or fresh.get("ask") or fill_price_
+                                    logger.info(
+                                        f"  {ticker} price refreshed: ${stale_price:.2f} -> "
+                                        f"mid ${fill_price_:.2f} order_limit=${order_limit_price:.2f}"
+                                    )
                                     # Re-check bankroll against actual live price
-                                    if bankroll is not None and fill_price_ * 100 > bankroll[0]:
-                                        logger.info(f"  [BANKROLL] Insufficient funds after price refresh — need ${fill_price_*100:.2f}, have ${bankroll[0]:.2f} — skipping {ticker}")
+                                    if bankroll is not None and order_limit_price * 100 > bankroll[0]:
+                                        logger.info(f"  [BANKROLL] Insufficient funds after price refresh — need ${order_limit_price*100:.2f}, have ${bankroll[0]:.2f} — skipping {ticker}")
                                         _just_tracked = False
                                         continue
                             except Exception as e:
@@ -2214,7 +2235,7 @@ def evaluate_new_candidates(
                                     short_strike    = short_.get("strike", 0),
                                     side            = "buy",
                                     quantity        = contracts_,
-                                    net_limit_price = fill_price_,
+                                    net_limit_price = order_limit_price,
                                     tag             = unique_tag
                                 )
                             else:
@@ -2225,7 +2246,7 @@ def evaluate_new_candidates(
                                     strike      = main_.get("strike", 0),
                                     side        = "buy_to_open",
                                     quantity    = contracts_,
-                                    limit_price = fill_price_,
+                                    limit_price = order_limit_price,
                                     tag         = unique_tag
                                 )
 
@@ -2242,20 +2263,21 @@ def evaluate_new_candidates(
                                     strike=main_.get("strike", 0),
                                     expiration=exp_,
                                     quantity=contracts_,
-                                    limit_price=fill_price_,
+                                    limit_price=order_limit_price,
                                     client_order_id=unique_tag,
                                     raw_payload={
                                         "is_spread": is_spread,
                                         "short_strike": short_.get("strike") if short_ else None,
                                         "candidate_evaluation_id": candidate_eval_id,
+                                        "refreshed_mid": fill_price_,
                                     },
                                     notes="entry_submitted",
                                 )
                                 # Order placed — queue for reconciliation, don't block the loop
-                                print(f"  [LIVE-PAPER] Order {oid} placed for {ticker} @ ${fill_price_:.2f} — queued for reconciliation")
+                                print(f"  [LIVE-PAPER] Order {oid} placed for {ticker} @ ${order_limit_price:.2f} — queued for reconciliation")
                                 if pending_orders is not None:
                                     pdata = _pos_data.copy()
-                                    pdata["limit_price"] = fill_price_  # actual placed limit, not cached scanner price
+                                    pdata["limit_price"] = order_limit_price  # actual placed limit, not cached scanner price
                                     pdata["candidate_evaluation_id"] = candidate_eval_id
                                     pending_orders[oid] = pdata
                                     save_pending_orders(pending_orders)
@@ -3498,11 +3520,6 @@ def main():
                                 broker.cancel_order(oid)
                                 _update_broker_order(oid, "CANCELLED", notes="entry_order_age_cancelled")
                                 logger.info(f"  [RECONCILE] Cancelled stale order {oid} ({pos_data.get('ticker')} aged {age_hours:.1f}h)")
-                                ticker_r = pos_data.get("ticker", "")
-                                if ticker_r:
-                                    from datetime import timedelta
-                                    cooldown_until = (datetime.now() + timedelta(hours=4)).isoformat()
-                                    db.set_cooldown(ticker_r, cooldown_until, reason="order_age_cancelled")
                                 filled_oids.append(oid)
                                 continue
                         except Exception:
@@ -3541,11 +3558,8 @@ def main():
                                 if live_ask > 0 and limit_price > 0 and live_ask > limit_price * 1.20:
                                     broker.cancel_order(oid)
                                     _update_broker_order(oid, "CANCELLED", notes="entry_order_drift_cancelled")
-                                    logger.info(f"  [RECONCILE] Cancelled {ticker_r} order {oid} — price drifted too far (limit=${limit_price:.2f} ask=${live_ask:.2f})")
-                                    # Cooldown ticker so it doesn't re-enter this session
-                                    from datetime import timedelta
-                                    cooldown_until = (datetime.now() + timedelta(hours=4)).isoformat()
-                                    db.set_cooldown(ticker_r, cooldown_until, reason="order_drift_cancelled")
+                                    ask_label = "net_ask" if "SPREAD" in strategy_r else "ask"
+                                    logger.info(f"  [RECONCILE] Cancelled {ticker_r} order {oid} — price drifted too far (limit=${limit_price:.2f} {ask_label}=${live_ask:.2f})")
                                     filled_oids.append(oid)
                                     continue
                         except Exception:
