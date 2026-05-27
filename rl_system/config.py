@@ -74,6 +74,8 @@ ML_ENTRY_MODEL_PATH = "rl_system/models/entry_model.pkl"
 ML_MIN_TRAINING_ROWS = 100
 ML_MIN_EXPECTED_R = 0.03          # Require positive expected edge when model is active
 ML_CONFIDENCE_BLEND = 0.35        # Blend model confidence into agent confidence
+CANDIDATE_SNAPSHOT_LOOKBACK_HOURS = 30
+MAX_CANDIDATE_SNAPSHOT_TARGETS = 1000
 
 # ─── Drawdown Controls ───────────────────────────────────────────────────────
 MAX_DAILY_DRAWDOWN_PCT  = 0.06   # Force no new entries if daily P&L down > 6% of account

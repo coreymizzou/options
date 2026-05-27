@@ -1,122 +1,78 @@
 #!/usr/bin/env python3
 """
-Label candidate_evaluations with forward option-price outcomes.
+Label candidate_evaluations from timestamped candidate_price_snapshots.
 
-Run this during/after the session. Repeated runs improve MFE/MAE tracking and
-fill 1h/EOD/1d outcome columns once candidates are old enough.
+This script deliberately avoids fetching a "current" quote to backfill old
+outcomes. Labels are only written when a stored snapshot exists near the target
+time, so 1h/EOD/1d labels mean what they say.
 """
 
 import argparse
-import json
-import os
 import sqlite3
-from datetime import datetime, time as dtime
+from datetime import datetime, time as dtime, timedelta
 from pathlib import Path
-from typing import Dict, Optional
-
-import requests
+from typing import Dict, List, Optional, Tuple
 
 
-def _json(value):
-    if isinstance(value, dict):
-        return value
-    if not value:
-        return {}
+def _parse_dt(value: str) -> Optional[datetime]:
     try:
-        return json.loads(value)
-    except Exception:
-        return {}
-
-
-def _get_state(con, key: str) -> str:
-    row = con.execute("SELECT value FROM system_state WHERE key = ?", (key,)).fetchone()
-    if not row:
-        return ""
-    try:
-        return json.loads(row[0])
-    except Exception:
-        return str(row[0] or "")
-
-
-def _fetch_mid(api_key: str, ticker: str, expiration: str, strike: float, option_type: str) -> Optional[float]:
-    try:
-        r = requests.get(
-            "https://api.tradier.com/v1/markets/options/chains",
-            headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
-            params={"symbol": ticker, "expiration": expiration, "greeks": "false"},
-            timeout=8,
-        )
-        if r.status_code != 200:
-            return None
-        options = r.json().get("options", {}).get("option", []) or []
-        for contract in options:
-            if (
-                abs(float(contract.get("strike", 0) or 0) - float(strike)) < 0.01
-                and str(contract.get("option_type", "")).lower() == option_type.lower()
-            ):
-                bid = float(contract.get("bid", 0) or 0)
-                ask = float(contract.get("ask", 0) or 0)
-                last = float(contract.get("last", 0) or 0)
-                if bid > 0 and ask > 0:
-                    return round((bid + ask) / 2, 2)
-                if last > 0:
-                    return round(last, 2)
+        return datetime.fromisoformat(str(value))
     except Exception:
         return None
-    return None
 
 
-def _candidate_current_price(api_key: str, row: sqlite3.Row) -> Optional[float]:
-    raw = _json(row["raw_scanner_data"])
-    trade = raw.get("trade", {}) or {}
-    main = trade.get("main_leg", {}) or {}
-    short = trade.get("short_leg", {}) or {}
-
-    ticker = row["ticker"] or raw.get("ticker")
-    expiration = row["expiration"] or main.get("exp") or trade.get("exp")
-    strategy = str(row["strategy"] or trade.get("strategy") or "").upper()
-    strike = row["strike"] or main.get("strike")
-    option_type = main.get("option_type")
-    if not option_type:
-        option_type = "put" if ("BEAR" in strategy or "PUT" in strategy) else "call"
-
-    if not ticker or not expiration or not strike:
-        return None
-
-    long_mid = _fetch_mid(api_key, ticker, expiration, float(strike), option_type)
-    if long_mid is None:
-        return None
-
-    if "SPREAD" in strategy and short:
-        short_strike = short.get("strike")
-        short_type = short.get("option_type") or option_type
-        if short_strike:
-            short_mid = _fetch_mid(api_key, ticker, expiration, float(short_strike), short_type)
-            if short_mid is not None:
-                return max(round(long_mid - short_mid, 2), 0.01)
-
-    return long_mid
+def _nearest_snapshot(
+    snapshots: List[sqlite3.Row],
+    target: datetime,
+    tolerance_minutes: int,
+) -> Optional[sqlite3.Row]:
+    best: Optional[Tuple[float, sqlite3.Row]] = None
+    for snap in snapshots:
+        ts = _parse_dt(snap["timestamp"])
+        if not ts:
+            continue
+        diff = abs((ts - target).total_seconds())
+        if diff <= tolerance_minutes * 60:
+            if best is None or diff < best[0]:
+                best = (diff, snap)
+    return best[1] if best else None
 
 
-def _is_eod_candidate(ts: datetime, now: datetime) -> bool:
-    return ts.date() == now.date() and now.time() >= dtime(hour=15, minute=45)
+def _r(entry_price: float, option_price: float) -> float:
+    return round((float(option_price) - entry_price) / entry_price, 4)
 
 
-def label_rows(db_path: Path, limit: int) -> int:
+def _snapshot_rows(con: sqlite3.Connection, candidate_id: int) -> List[sqlite3.Row]:
+    return con.execute(
+        """
+        SELECT *
+        FROM candidate_price_snapshots
+        WHERE candidate_id = ?
+        ORDER BY timestamp
+        """,
+        (candidate_id,),
+    ).fetchall()
+
+
+def _eod_target(ts: datetime) -> datetime:
+    return datetime.combine(ts.date(), dtime(hour=15, minute=45))
+
+
+def label_rows(
+    db_path: Path,
+    limit: int,
+    tolerance_1h_minutes: int,
+    tolerance_eod_minutes: int,
+    tolerance_1d_minutes: int,
+) -> int:
     con = sqlite3.connect(db_path)
     con.row_factory = sqlite3.Row
-    api_key = os.environ.get("TRADIER_API_KEY") or _get_state(con, "tradier_api_key")
-    if not api_key:
-        print("No Tradier API key found in env or DB system_state.")
-        return 1
 
     rows = con.execute(
         """
         SELECT *
         FROM candidate_evaluations
-        WHERE raw_scanner_data IS NOT NULL
-          AND entry_price IS NOT NULL
-          AND expiration IS NOT NULL
+        WHERE entry_price IS NOT NULL
           AND (
             outcome_1h_r IS NULL OR outcome_eod_r IS NULL OR outcome_1d_r IS NULL
             OR mfe_r IS NULL OR mae_r IS NULL
@@ -129,34 +85,60 @@ def label_rows(db_path: Path, limit: int) -> int:
 
     now = datetime.now()
     labeled = 0
+    skipped_no_snapshots = 0
+    skipped_not_ready = 0
+
     for row in rows:
-        try:
-            ts = datetime.fromisoformat(row["timestamp"])
-        except Exception:
-            continue
-        age_hours = (now - ts).total_seconds() / 3600
-        current_price = _candidate_current_price(api_key, row)
+        candidate_ts = _parse_dt(row["timestamp"])
         entry_price = float(row["entry_price"] or 0)
-        if current_price is None or entry_price <= 0:
+        if not candidate_ts or entry_price <= 0:
             continue
 
-        current_r = round((current_price - entry_price) / entry_price, 4)
-        updates: Dict[str, float] = {}
-        if row["outcome_1h_r"] is None and age_hours >= 1:
-            updates["outcome_1h_r"] = current_r
-        if row["outcome_eod_r"] is None and _is_eod_candidate(ts, now):
-            updates["outcome_eod_r"] = current_r
-        if row["outcome_1d_r"] is None and age_hours >= 20:
-            updates["outcome_1d_r"] = current_r
+        snapshots = _snapshot_rows(con, row["id"])
+        if not snapshots:
+            skipped_no_snapshots += 1
+            continue
 
-        mfe = row["mfe_r"]
-        mae = row["mae_r"]
-        updates["mfe_r"] = current_r if mfe is None else max(float(mfe), current_r)
-        updates["mae_r"] = current_r if mae is None else min(float(mae), current_r)
-        updates["outcome_labeled_at"] = now.isoformat()
+        updates: Dict[str, object] = {}
+        observed_rs = [
+            _r(entry_price, snap["option_price"])
+            for snap in snapshots
+            if snap["option_price"] is not None
+        ]
+        if observed_rs:
+            updates["mfe_r"] = max(observed_rs)
+            updates["mae_r"] = min(observed_rs)
+
+        target_1h = candidate_ts + timedelta(hours=1)
+        if row["outcome_1h_r"] is None:
+            if now >= target_1h:
+                snap = _nearest_snapshot(snapshots, target_1h, tolerance_1h_minutes)
+                if snap:
+                    updates["outcome_1h_r"] = _r(entry_price, snap["option_price"])
+            else:
+                skipped_not_ready += 1
+
+        target_eod = _eod_target(candidate_ts)
+        if row["outcome_eod_r"] is None:
+            if now >= target_eod:
+                snap = _nearest_snapshot(snapshots, target_eod, tolerance_eod_minutes)
+                if snap:
+                    updates["outcome_eod_r"] = _r(entry_price, snap["option_price"])
+            else:
+                skipped_not_ready += 1
+
+        target_1d = candidate_ts + timedelta(hours=24)
+        if row["outcome_1d_r"] is None:
+            if now >= target_1d:
+                snap = _nearest_snapshot(snapshots, target_1d, tolerance_1d_minutes)
+                if snap:
+                    updates["outcome_1d_r"] = _r(entry_price, snap["option_price"])
+            else:
+                skipped_not_ready += 1
 
         if updates:
-            sets = ", ".join(f"{k} = ?" for k in updates)
+            updates["outcome_labeled_at"] = now.isoformat()
+            sets = ", ".join(f"{key} = ?" for key in updates)
             con.execute(
                 f"UPDATE candidate_evaluations SET {sets} WHERE id = ?",
                 [*updates.values(), row["id"]],
@@ -166,15 +148,28 @@ def label_rows(db_path: Path, limit: int) -> int:
     con.commit()
     con.close()
     print(f"Labeled/updated {labeled} candidate rows from {db_path}")
+    print(f"Skipped without snapshots: {skipped_no_snapshots}")
+    print(f"Skipped not ready yet: {skipped_not_ready}")
     return 0
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Label candidate outcomes using current option quotes")
+    parser = argparse.ArgumentParser(
+        description="Label candidate outcomes from stored price snapshots"
+    )
     parser.add_argument("--db", default="scanner_data_live.db", help="SQLite DB path")
-    parser.add_argument("--limit", type=int, default=250, help="Max rows to process")
+    parser.add_argument("--limit", type=int, default=1000, help="Max rows to process")
+    parser.add_argument("--tolerance-1h-minutes", type=int, default=15)
+    parser.add_argument("--tolerance-eod-minutes", type=int, default=20)
+    parser.add_argument("--tolerance-1d-minutes", type=int, default=90)
     args = parser.parse_args()
-    return label_rows(Path(args.db).resolve(), args.limit)
+    return label_rows(
+        Path(args.db).resolve(),
+        args.limit,
+        args.tolerance_1h_minutes,
+        args.tolerance_eod_minutes,
+        args.tolerance_1d_minutes,
+    )
 
 
 if __name__ == "__main__":

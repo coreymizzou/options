@@ -11,7 +11,7 @@ trade journal, decision history, and agent weights.
 import sqlite3
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -184,6 +184,22 @@ CREATE TABLE IF NOT EXISTS candidate_evaluations (
     mae_r               REAL,
     outcome_labeled_at  TEXT
 );
+
+-- ── Candidate Price Snapshots ───────────────────────────────────────────────
+-- Timestamped forward prices for candidate_evaluations. Outcome labels must be
+-- derived from these snapshots, not from "current quote when labeler ran".
+CREATE TABLE IF NOT EXISTS candidate_price_snapshots (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id         INTEGER REFERENCES candidate_evaluations(id),
+    timestamp            TEXT,
+    option_price         REAL,
+    underlying_price     REAL,
+    source               TEXT,
+    raw_payload          TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_candidate_price_snapshots_candidate_time
+    ON candidate_price_snapshots(candidate_id, timestamp);
 
 -- ── Trade Journal ─────────────────────────────────────────────────────────────
 -- Human-readable decision log — one entry per notable event
@@ -561,6 +577,76 @@ def insert_candidate_evaluation(data: Dict[str, Any]) -> int:
             "position_id": data.get("position_id"),
         })
         return cur.lastrowid
+
+
+def insert_candidate_price_snapshot(data: Dict[str, Any]) -> Optional[int]:
+    """Store a timestamped price observation for a candidate evaluation."""
+    if not data.get("candidate_id") or data.get("option_price") is None:
+        return None
+    sql = """
+        INSERT INTO candidate_price_snapshots (
+            candidate_id, timestamp, option_price, underlying_price, source, raw_payload
+        ) VALUES (
+            :candidate_id, :timestamp, :option_price, :underlying_price, :source, :raw_payload
+        )
+    """
+    with get_connection() as conn:
+        cur = conn.execute(sql, {
+            "candidate_id": data.get("candidate_id"),
+            "timestamp": data.get("timestamp") or datetime.now().isoformat(),
+            "option_price": data.get("option_price"),
+            "underlying_price": data.get("underlying_price"),
+            "source": data.get("source"),
+            "raw_payload": _dumps(data.get("raw_payload") or {}),
+        })
+        return cur.lastrowid
+
+
+def get_candidate_snapshot_targets(limit: int = 1000, max_age_hours: float = 30.0) -> List[Dict]:
+    """
+    Return recent candidates that still need forward price snapshots for labeling.
+    """
+    sql = """
+        SELECT *
+        FROM candidate_evaluations
+        WHERE raw_scanner_data IS NOT NULL
+          AND entry_price IS NOT NULL
+          AND expiration IS NOT NULL
+          AND (
+            outcome_1h_r IS NULL OR outcome_eod_r IS NULL OR outcome_1d_r IS NULL
+            OR mfe_r IS NULL OR mae_r IS NULL
+          )
+        ORDER BY timestamp DESC
+        LIMIT ?
+    """
+    with get_connection() as conn:
+        rows = conn.execute(sql, (limit,)).fetchall()
+    cutoff = datetime.now() - timedelta(hours=max_age_hours)
+    targets = []
+    for row in rows:
+        item = dict(row)
+        try:
+            if datetime.fromisoformat(item.get("timestamp", "")) < cutoff:
+                continue
+        except Exception:
+            continue
+        targets.append(item)
+    return targets
+
+
+def get_candidate_price_snapshots(candidate_id: int) -> List[Dict]:
+    """Return all price snapshots for one candidate ordered by timestamp."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM candidate_price_snapshots
+            WHERE candidate_id = ?
+            ORDER BY timestamp
+            """,
+            (candidate_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # =============================================================================

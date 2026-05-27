@@ -1131,6 +1131,58 @@ def run_scanner(paper_mode: bool, regime: Dict) -> List[Dict]:
             "error": r.get("error"),
         })
 
+    def _candidate_contract_key_from_result(r: Dict) -> Optional[tuple]:
+        trade = r.get("trade", {}) or {}
+        main_leg = trade.get("main_leg", {}) or {}
+        ticker = (r.get("ticker") or "").upper()
+        strike = main_leg.get("strike")
+        expiration = main_leg.get("exp") or trade.get("exp")
+        strategy = trade.get("strategy")
+        if not ticker or not strike or not expiration or not strategy:
+            return None
+        try:
+            strike = round(float(strike), 3)
+        except Exception:
+            return None
+        return (ticker, strategy, expiration, strike)
+
+    def _candidate_contract_key_from_row(row: Dict) -> Optional[tuple]:
+        ticker = (row.get("ticker") or "").upper()
+        strategy = row.get("strategy")
+        expiration = row.get("expiration")
+        strike = row.get("strike")
+        if not ticker or not strike or not expiration or not strategy:
+            return None
+        try:
+            strike = round(float(strike), 3)
+        except Exception:
+            return None
+        return (ticker, strategy, expiration, strike)
+
+    latest_by_contract = {}
+    for r in results:
+        key = _candidate_contract_key_from_result(r)
+        if key:
+            latest_by_contract[key] = r
+
+    def _snapshot_payload(candidate_id: int, r: Dict, source: str) -> Optional[Dict]:
+        pricing = r.get("pricing", {}) or {}
+        option_price = pricing.get("entry")
+        if option_price is None:
+            return None
+        return {
+            "candidate_id": candidate_id,
+            "timestamp": datetime.now().isoformat(),
+            "option_price": option_price,
+            "underlying_price": r.get("spot"),
+            "source": source,
+            "raw_payload": {
+                "pricing": pricing,
+                "ticker": r.get("ticker"),
+                "timestamp": r.get("timestamp"),
+            },
+        }
+
     # Persist every scanner row as ML source data, including pre-filter rejects.
     # This lets the supervised model learn from skipped candidates, not only
     # trades that reached the agent.
@@ -1141,7 +1193,7 @@ def run_scanner(paper_mode: bool, regime: Dict) -> List[Dict]:
             pricing = r.get("pricing", {}) or {}
             flow = r.get("flow", []) or []
             vol = r.get("vol", {}) or {}
-            db.insert_candidate_evaluation({
+            candidate_id = db.insert_candidate_evaluation({
                 "timestamp": r.get("timestamp") or datetime.now().isoformat(),
                 "ticker": row.get("ticker"),
                 "strategy": row.get("strategy"),
@@ -1165,8 +1217,34 @@ def run_scanner(paper_mode: bool, regime: Dict) -> List[Dict]:
                 },
                 "raw_scanner_data": r,
             })
+            snap = _snapshot_payload(candidate_id, r, "scanner_initial")
+            if snap:
+                db.insert_candidate_price_snapshot(snap)
         except Exception as e:
             logger.debug(f"Scanner scorecard candidate log failed for {row.get('ticker')}: {e}")
+
+    # Add forward snapshots to older candidates whose exact contract still
+    # appears in the latest scanner data. Labels are later derived from these
+    # timestamped observations.
+    try:
+        targets = db.get_candidate_snapshot_targets(
+            limit=getattr(cfg, "MAX_CANDIDATE_SNAPSHOT_TARGETS", 1000),
+            max_age_hours=getattr(cfg, "CANDIDATE_SNAPSHOT_LOOKBACK_HOURS", 30),
+        )
+        snapshot_count = 0
+        for target in targets:
+            key = _candidate_contract_key_from_row(target)
+            r = latest_by_contract.get(key)
+            if not r:
+                continue
+            snap = _snapshot_payload(target["id"], r, "scanner_forward")
+            if snap:
+                db.insert_candidate_price_snapshot(snap)
+                snapshot_count += 1
+        if snapshot_count:
+            logger.info(f"Recorded {snapshot_count} candidate forward price snapshot(s)")
+    except Exception as e:
+        logger.debug(f"Candidate forward snapshot logging failed: {e}")
 
     if getattr(cfg, "LOG_SCANNER_SCORECARD", True) and scorecard:
         logger.info("Scanner scorecard (min_score=%s):", min_score)
