@@ -2596,6 +2596,9 @@ def _cmd_reset(keep_weights: bool = True):
         # Delete in dependency order — children before parents
         # to avoid foreign key constraint violations
         conn.execute("DELETE FROM tick_snapshots")
+        conn.execute("DELETE FROM candidate_price_snapshots")
+        conn.execute("DELETE FROM candidate_evaluations")
+        conn.execute("DELETE FROM orders")
         conn.execute("DELETE FROM recommendations")
         conn.execute("DELETE FROM trade_journal")
         conn.execute("DELETE FROM positions")
