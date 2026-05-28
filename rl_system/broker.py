@@ -197,9 +197,11 @@ def place_spread_order(
     long_side  = "buy"  if side == "buy" else "sell"
     short_side = "sell" if side == "buy" else "buy"
 
-    # position_intent for each leg based on whether opening or closing
-    long_intent  = "buy_to_open"   if side == "buy" else "buy_to_close"
-    short_intent = "sell_to_open"  if side == "buy" else "sell_to_close"
+    # position_intent for each leg based on whether opening or closing.
+    # Opening a debit spread: buy long leg to open, sell short leg to open.
+    # Closing it: sell long leg to close, buy short leg to close.
+    long_intent  = "buy_to_open"   if side == "buy" else "sell_to_close"
+    short_intent = "sell_to_open"  if side == "buy" else "buy_to_close"
 
     if market_order:
         order_type_fields = {"type": "market"}

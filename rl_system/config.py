@@ -162,10 +162,11 @@ OI_INCREASE_REQUIRED = True      # Require OI to increase to confirm opening flo
                                   # Set False to treat all flow as valid
 
 # ─── Auto Mode ───────────────────────────────────────────────────────────────
-AUTO_MAX_POSITIONS   = 10         # Max concurrent positions in --auto mode
+AUTO_MAX_POSITIONS   = 3          # Max concurrent positions in --auto mode
 AUTO_MAX_CAPITAL_PCT = 0.90       # Max % of account to deploy at once in --auto mode
                                   # e.g. 0.40 = never risk more than $10,000 simultaneously
                                   # Each position still respects MAX_RISK_DOLLARS
+MAX_EXECUTABLE_PRICE_DIVERGENCE = 0.25  # Skip entries if marketable limit is >25% from scanner price
 AUTO_ALLOWED_TICKERS = {
     "NVDA", "TSLA", "AAPL", "MSFT", "META",
     "AMZN", "GOOGL", "AMD", "MU", "MSTR",

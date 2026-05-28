@@ -2195,15 +2195,19 @@ def evaluate_new_candidates(
                                         fresh["order_limit"] = fresh["ask"]
                                 if use_price > 0:
                                     stale_price = fill_price_
-                                    # Sanity check — if refreshed price diverges >40% from scanner price, skip trade
+                                    order_limit_candidate = fresh.get("order_limit") or fresh.get("ask") or use_price
+                                    max_exec_divergence = getattr(
+                                        cfg, "MAX_EXECUTABLE_PRICE_DIVERGENCE", 0.25
+                                    )
+                                    # Sanity check — if executable price is too far from scanner price, skip trade
                                     if stale_price > 0:
-                                        divergence = abs(use_price - stale_price) / stale_price
-                                        if divergence > 0.40:
-                                            logger.warning(f"  {ticker} price divergence too large (scanner=${stale_price:.2f} live=${use_price:.2f} diff={divergence:.0%}) — skipping trade")
+                                        divergence = abs(order_limit_candidate - stale_price) / stale_price
+                                        if divergence > max_exec_divergence:
+                                            logger.warning(f"  {ticker} executable price divergence too large (scanner=${stale_price:.2f} limit=${order_limit_candidate:.2f} diff={divergence:.0%} max={max_exec_divergence:.0%}) — skipping trade")
                                             _just_tracked = False
                                             continue
                                     fill_price_ = use_price
-                                    order_limit_price = fresh.get("order_limit") or fresh.get("ask") or fill_price_
+                                    order_limit_price = order_limit_candidate
                                     logger.info(
                                         f"  {ticker} price refreshed: ${stale_price:.2f} -> "
                                         f"mid ${fill_price_:.2f} order_limit=${order_limit_price:.2f}"
