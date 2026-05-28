@@ -26,6 +26,7 @@ import signal
 import logging
 import argparse
 import traceback
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -69,6 +70,7 @@ _oi_cache: Dict[str, int] = {}   # "TICKER:strike:exp:type" → last known OI
 # Earnings cache to avoid hitting API every tick
 _earnings_cache: Dict[str, Optional[str]] = {}   # ticker → next earnings date ISO or None
 _earnings_cache_time: Dict[str, float] = {}       # ticker → timestamp of last fetch
+_last_ml_maintenance_date: Optional[str] = None
 from position_tracker import PositionTracker
 from notifier import (
     Alert, send, notify_entry, notify_exit,
@@ -145,6 +147,73 @@ def is_market_hours_for_entry() -> bool:
     except Exception as e:
         logger.warning(f"Market hours check failed: {e} — defaulting to closed")
         return False
+
+
+def maybe_run_ml_maintenance():
+    """Automatically label candidate outcomes and retrain once per day after close."""
+    global _last_ml_maintenance_date
+    if not getattr(cfg, "ML_AUTO_MAINTENANCE_ENABLED", True):
+        return
+    try:
+        try:
+            from zoneinfo import ZoneInfo
+        except ImportError:
+            from backports.zoneinfo import ZoneInfo
+        now_et = datetime.now(ZoneInfo("America/New_York"))
+        today_key = now_et.date().isoformat()
+        if _last_ml_maintenance_date == today_key:
+            return
+        if now_et.weekday() >= 5:
+            return
+        if now_et.hour < getattr(cfg, "ML_AUTO_MAINTENANCE_HOUR_ET", 16):
+            return
+
+        _last_ml_maintenance_date = today_key
+        logger.info("Starting automatic ML maintenance for %s", today_key)
+
+        py = sys.executable
+        label_cmd = [
+            py,
+            str(REPO_ROOT / "rl_system" / "label_candidate_outcomes.py"),
+            "--db",
+            str(cfg.DB_PATH),
+        ]
+        train_cmd = [
+            py,
+            str(REPO_ROOT / "rl_system" / "train_entry_model.py"),
+            "--db",
+            str(cfg.DB_PATH),
+            "--target-horizon",
+            getattr(cfg, "ML_AUTO_TARGET_HORIZON", "eod"),
+            "--min-rows",
+            str(getattr(cfg, "ML_MIN_TRAINING_ROWS", 100)),
+        ]
+
+        label = subprocess.run(
+            label_cmd,
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        logger.info("ML labeler exited %s: %s", label.returncode, (label.stdout or label.stderr).strip())
+
+        train = subprocess.run(
+            train_cmd,
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        output = (train.stdout or train.stderr).strip()
+        if train.returncode == 0:
+            logger.info("ML trainer completed: %s", output)
+            if ML_ENTRY_MODEL_AVAILABLE and ml_entry_model is not None:
+                ml_entry_model.load_model(force=True)
+        else:
+            logger.info("ML trainer skipped/failed with code %s: %s", train.returncode, output)
+    except Exception as e:
+        logger.warning("Automatic ML maintenance failed: %s", e)
 
 
 # =============================================================================
@@ -1134,8 +1203,10 @@ def run_scanner(paper_mode: bool, regime: Dict) -> List[Dict]:
     def _candidate_contract_key_from_result(r: Dict) -> Optional[tuple]:
         trade = r.get("trade", {}) or {}
         main_leg = trade.get("main_leg", {}) or {}
+        short_leg = trade.get("short_leg", {}) or {}
         ticker = (r.get("ticker") or "").upper()
         strike = main_leg.get("strike")
+        short_strike = short_leg.get("strike") if "SPREAD" in str(trade.get("strategy", "")).upper() else None
         expiration = main_leg.get("exp") or trade.get("exp")
         strategy = trade.get("strategy")
         if not ticker or not strike or not expiration or not strategy:
@@ -1144,20 +1215,36 @@ def run_scanner(paper_mode: bool, regime: Dict) -> List[Dict]:
             strike = round(float(strike), 3)
         except Exception:
             return None
-        return (ticker, strategy, expiration, strike)
+        try:
+            short_strike = round(float(short_strike), 3) if short_strike is not None else None
+        except Exception:
+            short_strike = None
+        return (ticker, strategy, expiration, strike, short_strike)
 
     def _candidate_contract_key_from_row(row: Dict) -> Optional[tuple]:
         ticker = (row.get("ticker") or "").upper()
         strategy = row.get("strategy")
         expiration = row.get("expiration")
         strike = row.get("strike")
+        short_strike = row.get("short_strike")
+        if short_strike is None:
+            try:
+                raw = row.get("raw_scanner_data")
+                raw = json.loads(raw) if isinstance(raw, str) and raw else (raw or {})
+                short_strike = ((raw.get("trade") or {}).get("short_leg") or {}).get("strike")
+            except Exception:
+                short_strike = None
         if not ticker or not strike or not expiration or not strategy:
             return None
         try:
             strike = round(float(strike), 3)
         except Exception:
             return None
-        return (ticker, strategy, expiration, strike)
+        try:
+            short_strike = round(float(short_strike), 3) if short_strike is not None else None
+        except Exception:
+            short_strike = None
+        return (ticker, strategy, expiration, strike, short_strike)
 
     latest_by_contract = {}
     for r in results:
@@ -1190,6 +1277,7 @@ def run_scanner(paper_mode: bool, regime: Dict) -> List[Dict]:
         try:
             trade = r.get("trade", {}) or {}
             main_leg = trade.get("main_leg", {}) or {}
+            short_leg = trade.get("short_leg", {}) or {}
             pricing = r.get("pricing", {}) or {}
             flow = r.get("flow", []) or []
             vol = r.get("vol", {}) or {}
@@ -1199,6 +1287,7 @@ def run_scanner(paper_mode: bool, regime: Dict) -> List[Dict]:
                 "strategy": row.get("strategy"),
                 "direction": row.get("direction"),
                 "strike": main_leg.get("strike"),
+                "short_strike": short_leg.get("strike"),
                 "expiration": main_leg.get("exp") or trade.get("exp"),
                 "action": "PREFILTER_PASS" if not row.get("reject_reason") else "PREFILTER_REJECT",
                 "confidence": None,
@@ -1208,6 +1297,7 @@ def run_scanner(paper_mode: bool, regime: Dict) -> List[Dict]:
                 "regime": regime.get("regime"),
                 "above_vwap": 1 if r.get("tech", {}).get("above_vwap") else 0,
                 "entry_price": pricing.get("entry"),
+                "scanner_entry_price": pricing.get("entry"),
                 "reasons": [row.get("reject_reason")] if row.get("reject_reason") else ["passed_prefilter"],
                 "market_snapshot": {
                     "regime": regime.get("regime"),
@@ -1976,6 +2066,7 @@ def evaluate_new_candidates(
         trade = scanner_result.get("trade", {})
         pricing = scanner_result.get("pricing", {})
         main_leg = trade.get("main_leg", {})
+        short_leg = trade.get("short_leg", {}) or {}
         flow_conf = flow[0].get("dir_confidence") if flow else "none"
         regime_name = snapshot.get("regime")
         candidate_eval_id = None
@@ -1986,6 +2077,7 @@ def evaluate_new_candidates(
                 "strategy": trade.get("strategy"),
                 "direction": trade.get("direction"),
                 "strike": main_leg.get("strike"),
+                "short_strike": short_leg.get("strike"),
                 "expiration": main_leg.get("exp") or trade.get("exp"),
                 "action": action,
                 "confidence": confidence,
@@ -1995,10 +2087,24 @@ def evaluate_new_candidates(
                 "regime": regime_name,
                 "above_vwap": 1 if snapshot.get("above_vwap") else 0,
                 "entry_price": pricing.get("entry"),
+                "scanner_entry_price": pricing.get("entry"),
                 "reasons": reasons[:8],
                 "market_snapshot": snapshot,
                 "raw_scanner_data": scanner_result,
             })
+            if pricing.get("entry") is not None:
+                db.insert_candidate_price_snapshot({
+                    "candidate_id": candidate_eval_id,
+                    "timestamp": snapshot["timestamp"],
+                    "option_price": pricing.get("entry"),
+                    "underlying_price": scanner_result.get("spot"),
+                    "source": "agent_initial",
+                    "raw_payload": {
+                        "pricing": pricing,
+                        "ticker": ticker,
+                        "timestamp": scanner_result.get("timestamp"),
+                    },
+                })
         except Exception as e:
             logger.warning(f"Candidate evaluation log failed for {ticker}: {e}")
 
@@ -2199,15 +2305,43 @@ def evaluate_new_candidates(
                                     max_exec_divergence = getattr(
                                         cfg, "MAX_EXECUTABLE_PRICE_DIVERGENCE", 0.25
                                     )
+                                    bid_ask_spread_pct = None
+                                    if fresh.get("bid") is not None and fresh.get("ask") is not None and use_price > 0:
+                                        try:
+                                            bid_ask_spread_pct = max(
+                                                (float(fresh.get("ask")) - float(fresh.get("bid"))) / use_price,
+                                                0.0,
+                                            )
+                                        except Exception:
+                                            bid_ask_spread_pct = None
                                     # Sanity check — if executable price is too far from scanner price, skip trade
                                     if stale_price > 0:
                                         divergence = abs(order_limit_candidate - stale_price) / stale_price
                                         if divergence > max_exec_divergence:
+                                            db.update_candidate_execution(
+                                                candidate_eval_id,
+                                                action="EXECUTION_SKIP",
+                                                refreshed_mid=use_price,
+                                                executable_limit_price=order_limit_candidate,
+                                                executable_divergence=divergence,
+                                                bid_ask_spread_pct=bid_ask_spread_pct,
+                                                fill_status="SKIPPED_EXECUTION_DIVERGENCE",
+                                            )
                                             logger.warning(f"  {ticker} executable price divergence too large (scanner=${stale_price:.2f} limit=${order_limit_candidate:.2f} diff={divergence:.0%} max={max_exec_divergence:.0%}) — skipping trade")
                                             _just_tracked = False
                                             continue
                                     fill_price_ = use_price
                                     order_limit_price = order_limit_candidate
+                                    db.update_candidate_execution(
+                                        candidate_eval_id,
+                                        refreshed_mid=fill_price_,
+                                        executable_limit_price=order_limit_price,
+                                        executable_divergence=(
+                                            abs(order_limit_price - stale_price) / stale_price
+                                            if stale_price > 0 else None
+                                        ),
+                                        bid_ask_spread_pct=bid_ask_spread_pct,
+                                    )
                                     logger.info(
                                         f"  {ticker} price refreshed: ${stale_price:.2f} -> "
                                         f"mid ${fill_price_:.2f} order_limit=${order_limit_price:.2f}"
@@ -2256,6 +2390,11 @@ def evaluate_new_candidates(
 
                             if ok:
                                 entry_order_submitted = True
+                                db.update_candidate_execution(
+                                    candidate_eval_id,
+                                    executable_limit_price=order_limit_price,
+                                    fill_status="SUBMITTED",
+                                )
                                 _record_broker_order(
                                     oid=oid,
                                     order_kind="ENTRY",
@@ -2286,6 +2425,11 @@ def evaluate_new_candidates(
                                     pending_orders[oid] = pdata
                                     save_pending_orders(pending_orders)
                             else:
+                                db.update_candidate_execution(
+                                    candidate_eval_id,
+                                    executable_limit_price=order_limit_price,
+                                    fill_status="ORDER_REJECTED",
+                                )
                                 print(f"  [LIVE-PAPER] Order placement failed for {ticker} — not tracked")
 
                     else:
@@ -2580,7 +2724,10 @@ def _cmd_reset(keep_weights: bool = True):
     print(f"    - All recommendations")
     print(f"    - All cooldowns")
     print(f"    - Trade journal")
+    if keep_weights:
+        print(f"    - Position/recommendation links on ML candidates (candidate history kept)")
     if not keep_weights:
+        print(f"    - Candidate ML history and forward snapshots")
         print(f"    - Agent weights (learning starts over)")
     print()
 
@@ -2600,8 +2747,14 @@ def _cmd_reset(keep_weights: bool = True):
         # Delete in dependency order — children before parents
         # to avoid foreign key constraint violations
         conn.execute("DELETE FROM tick_snapshots")
-        conn.execute("DELETE FROM candidate_price_snapshots")
-        conn.execute("DELETE FROM candidate_evaluations")
+        if keep_weights:
+            conn.execute(
+                "UPDATE candidate_evaluations "
+                "SET recommendation_id = NULL, position_id = NULL"
+            )
+        else:
+            conn.execute("DELETE FROM candidate_price_snapshots")
+            conn.execute("DELETE FROM candidate_evaluations")
         conn.execute("DELETE FROM orders")
         conn.execute("DELETE FROM recommendations")
         conn.execute("DELETE FROM trade_journal")
@@ -3251,11 +3404,12 @@ def main():
                                 candidate_eval_id = matched_data.get("candidate_evaluation_id")
                                 if candidate_eval_id:
                                     try:
-                                        with db.get_connection() as conn:
-                                            conn.execute(
-                                                "UPDATE candidate_evaluations SET position_id = ? WHERE id = ?",
-                                                (pid, candidate_eval_id)
-                                            )
+                                        db.update_candidate_execution(
+                                            candidate_eval_id,
+                                            position_id=pid,
+                                            fill_price=fill_price,
+                                            fill_status="FILLED",
+                                        )
                                     except Exception as e:
                                         logger.warning(
                                             f"Startup candidate evaluation link failed for {matched_data.get('ticker')}: {e}"
@@ -3315,6 +3469,8 @@ def main():
                 logger.debug(f"Tick {tick}: Outside market hours — skipping scanner refresh")
 
             # ── EOD close — force-close long calls before overnight gap risk
+            maybe_run_ml_maintenance()
+
             if is_eod_close_time() and tracker.open_count > 0:
                 for pid, pos in list(tracker.open_positions.items()):
                     strategy = pos.get("strategy", "")
@@ -3527,6 +3683,12 @@ def main():
                                 broker.cancel_order(oid)
                                 _update_broker_order(oid, "CANCELLED", notes="entry_order_age_cancelled")
                                 logger.info(f"  [RECONCILE] Cancelled stale order {oid} ({pos_data.get('ticker')} aged {age_hours:.1f}h)")
+                                candidate_eval_id = pos_data.get("candidate_evaluation_id")
+                                if candidate_eval_id:
+                                    db.update_candidate_execution(
+                                        candidate_eval_id,
+                                        fill_status="CANCELLED",
+                                    )
                                 filled_oids.append(oid)
                                 continue
                         except Exception:
@@ -3595,11 +3757,12 @@ def main():
                                         candidate_eval_id = pos_data.get("candidate_evaluation_id")
                                         if candidate_eval_id:
                                             try:
-                                                with db.get_connection() as conn:
-                                                    conn.execute(
-                                                        "UPDATE candidate_evaluations SET position_id = ? WHERE id = ?",
-                                                        (pid, candidate_eval_id)
-                                                    )
+                                                db.update_candidate_execution(
+                                                    candidate_eval_id,
+                                                    position_id=pid,
+                                                    fill_price=fill_price,
+                                                    fill_status="FILLED",
+                                                )
                                             except Exception as e:
                                                 logger.warning(
                                                     f"Candidate evaluation fill link failed for {ticker_r}: {e}"
@@ -3645,6 +3808,12 @@ def main():
                                     raw_payload=order,
                                     notes="entry_not_filled",
                                 )
+                                candidate_eval_id = pos_data.get("candidate_evaluation_id")
+                                if candidate_eval_id:
+                                    db.update_candidate_execution(
+                                        candidate_eval_id,
+                                        fill_status=mapped_status,
+                                    )
                                 logger.info(f"  Pending order {oid} {status} — removing from reconciliation queue")
                                 filled_oids.append(oid)
                     for oid in filled_oids:

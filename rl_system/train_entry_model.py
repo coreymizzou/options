@@ -23,8 +23,14 @@ def _json(value):
         return {}
 
 
-def _target(row):
-    for key in ("outcome_1d_r", "outcome_eod_r", "outcome_1h_r"):
+def _target(row, horizon: str = "eod"):
+    orders = {
+        "1h": ("outcome_1h_r", "outcome_eod_r", "outcome_1d_r"),
+        "eod": ("outcome_eod_r", "outcome_1h_r", "outcome_1d_r"),
+        "1d": ("outcome_1d_r", "outcome_eod_r", "outcome_1h_r"),
+        "auto": ("outcome_1d_r", "outcome_eod_r", "outcome_1h_r"),
+    }
+    for key in orders.get(horizon, orders["eod"]):
         val = row[key]
         if val is not None:
             return float(val)
@@ -40,7 +46,10 @@ def load_training_rows(db_path: Path):
         FROM candidate_evaluations
         WHERE raw_scanner_data IS NOT NULL
           AND entry_price IS NOT NULL
-          AND action IN ('PREFILTER_PASS', 'PREFILTER_REJECT')
+          AND action IN (
+            'PREFILTER_PASS', 'PREFILTER_REJECT',
+            'ENTER', 'WAIT', 'EXECUTION_SKIP'
+          )
           AND (
             outcome_1h_r IS NOT NULL OR
             outcome_eod_r IS NOT NULL OR
@@ -53,12 +62,12 @@ def load_training_rows(db_path: Path):
     return rows
 
 
-def build_matrix(rows):
+def build_matrix(rows, horizon: str = "eod"):
     X, y = [], []
     for row in rows:
         scanner_result = _json(row["raw_scanner_data"])
         snapshot = _json(row["market_snapshot"])
-        target = _target(row)
+        target = _target(row, horizon=horizon)
         if not scanner_result or target is None:
             continue
         features, _ = extract_candidate_features(
@@ -76,12 +85,18 @@ def main():
     parser.add_argument("--db", default="scanner_data_live.db", help="SQLite DB path")
     parser.add_argument("--out", default=str(DEFAULT_MODEL_PATH), help="Model output path")
     parser.add_argument("--min-rows", type=int, default=100, help="Minimum labeled rows required")
+    parser.add_argument(
+        "--target-horizon",
+        choices=("1h", "eod", "1d", "auto"),
+        default="eod",
+        help="Outcome horizon to train against, with fallbacks when missing",
+    )
     args = parser.parse_args()
 
     db_path = Path(args.db).resolve()
     out_path = Path(args.out).resolve()
     rows = load_training_rows(db_path)
-    X, y = build_matrix(rows)
+    X, y = build_matrix(rows, horizon=args.target_horizon)
 
     if len(y) < args.min_rows:
         print(f"Not enough labeled rows: {len(y)} found, need {args.min_rows}.")
@@ -93,16 +108,17 @@ def main():
         from sklearn.ensemble import HistGradientBoostingRegressor
         from sklearn.inspection import permutation_importance
         from sklearn.metrics import mean_absolute_error, r2_score
-        from sklearn.model_selection import train_test_split
     except ImportError as e:
         print(f"Missing ML dependency: {e}")
         print("Install with: pip install -r requirements.txt")
         return 1
 
     test_size = 0.25 if len(y) >= 200 else 0.2
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=42
-    )
+    split_at = max(1, int(len(y) * (1 - test_size)))
+    if split_at >= len(y):
+        split_at = len(y) - 1
+    X_train, X_test = X[:split_at], X[split_at:]
+    y_train, y_test = y[:split_at], y[split_at:]
 
     model = HistGradientBoostingRegressor(
         max_iter=250,
@@ -134,12 +150,13 @@ def main():
         "feature_names": FEATURE_NAMES,
         "trained_at": datetime.now().isoformat(),
         "n_samples": int(len(y)),
-        "target": "coalesce(outcome_1d_r, outcome_eod_r, outcome_1h_r)",
+        "target": f"{args.target_horizon}_with_fallbacks",
         "metrics": {
             "mae": mae,
             "r2": r2,
             "directional_accuracy": directional_accuracy,
             "test_rows": int(len(y_test)),
+            "validation": "chronological_holdout",
             "mean_target_r": float(np.mean(y)),
             "median_target_r": float(np.median(y)),
         },

@@ -76,6 +76,9 @@ ML_MIN_EXPECTED_R = 0.03          # Require positive expected edge when model is
 ML_CONFIDENCE_BLEND = 0.35        # Blend model confidence into agent confidence
 CANDIDATE_SNAPSHOT_LOOKBACK_HOURS = 30
 MAX_CANDIDATE_SNAPSHOT_TARGETS = 1000
+ML_AUTO_MAINTENANCE_ENABLED = True
+ML_AUTO_MAINTENANCE_HOUR_ET = 16   # Run once daily after the market closes
+ML_AUTO_TARGET_HORIZON = "eod"
 
 # ─── Drawdown Controls ───────────────────────────────────────────────────────
 MAX_DAILY_DRAWDOWN_PCT  = 0.06   # Force no new entries if daily P&L down > 6% of account
@@ -90,8 +93,8 @@ REWARD_MIN_HOLD_TICKS    = 5     # Minimum ticks held before exit counts as non-
 
 # ─── Learning Layer ──────────────────────────────────────────────────────────
 AGENT_LEARNING_RATE      = 0.05   # Online update step size (lower = slower but more stable)
-AGENT_EXPLORATION_RATE   = 0.10   # Fraction of ticks using random exploration
-AGENT_MIN_SAMPLES_TO_LEARN = 10   # Min closed trades before weights deviate from prior
+AGENT_EXPLORATION_RATE   = 0.05   # Fraction of early ticks using random exploration
+AGENT_MIN_SAMPLES_TO_LEARN = 25   # Min closed trades before weights deviate from prior
 AGENT_WEIGHT_DECAY       = 0.001  # L2 regularization to prevent overfitting
 AGENT_SAVE_INTERVAL_TICKS = 10    # Save weights to DB every N ticks
 

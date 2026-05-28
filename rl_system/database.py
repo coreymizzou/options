@@ -163,6 +163,7 @@ CREATE TABLE IF NOT EXISTS candidate_evaluations (
     strategy            TEXT,
     direction           TEXT,
     strike              REAL,
+    short_strike        REAL,
     expiration          TEXT,
     action              TEXT,
     confidence          REAL,
@@ -172,6 +173,13 @@ CREATE TABLE IF NOT EXISTS candidate_evaluations (
     regime              TEXT,
     above_vwap          INTEGER,
     entry_price         REAL,
+    scanner_entry_price REAL,
+    refreshed_mid       REAL,
+    executable_limit_price REAL,
+    executable_divergence REAL,
+    bid_ask_spread_pct  REAL,
+    fill_price          REAL,
+    fill_status         TEXT,
     reasons             TEXT,
     market_snapshot     TEXT,
     raw_scanner_data    TEXT,
@@ -266,7 +274,22 @@ def initialize_database():
     """Create all tables if they don't exist."""
     with get_connection() as conn:
         conn.executescript(SCHEMA_SQL)
+        _ensure_column(conn, "candidate_evaluations", "short_strike", "REAL")
+        _ensure_column(conn, "candidate_evaluations", "scanner_entry_price", "REAL")
+        _ensure_column(conn, "candidate_evaluations", "refreshed_mid", "REAL")
+        _ensure_column(conn, "candidate_evaluations", "executable_limit_price", "REAL")
+        _ensure_column(conn, "candidate_evaluations", "executable_divergence", "REAL")
+        _ensure_column(conn, "candidate_evaluations", "bid_ask_spread_pct", "REAL")
+        _ensure_column(conn, "candidate_evaluations", "fill_price", "REAL")
+        _ensure_column(conn, "candidate_evaluations", "fill_status", "TEXT")
     logger.info(f"Database initialized at {DB_PATH}")
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, col_type: str):
+    """Add a nullable column when upgrading an existing SQLite DB."""
+    cols = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
 
 
 # =============================================================================
@@ -544,13 +567,21 @@ def insert_candidate_evaluation(data: Dict[str, Any]) -> int:
     sql = """
         INSERT INTO candidate_evaluations (
             timestamp, ticker, strategy, direction, strike, expiration,
+            short_strike,
             action, confidence, confluence_score, flow_confidence, ivr,
-            regime, above_vwap, entry_price, reasons, market_snapshot,
+            regime, above_vwap, entry_price, scanner_entry_price,
+            refreshed_mid, executable_limit_price, executable_divergence,
+            bid_ask_spread_pct, fill_price, fill_status,
+            reasons, market_snapshot,
             raw_scanner_data, recommendation_id, position_id
         ) VALUES (
             :timestamp, :ticker, :strategy, :direction, :strike, :expiration,
+            :short_strike,
             :action, :confidence, :confluence_score, :flow_confidence, :ivr,
-            :regime, :above_vwap, :entry_price, :reasons, :market_snapshot,
+            :regime, :above_vwap, :entry_price, :scanner_entry_price,
+            :refreshed_mid, :executable_limit_price, :executable_divergence,
+            :bid_ask_spread_pct, :fill_price, :fill_status,
+            :reasons, :market_snapshot,
             :raw_scanner_data, :recommendation_id, :position_id
         )
     """
@@ -561,6 +592,7 @@ def insert_candidate_evaluation(data: Dict[str, Any]) -> int:
             "strategy": data.get("strategy"),
             "direction": data.get("direction"),
             "strike": data.get("strike"),
+            "short_strike": data.get("short_strike"),
             "expiration": data.get("expiration"),
             "action": data.get("action"),
             "confidence": data.get("confidence"),
@@ -570,6 +602,13 @@ def insert_candidate_evaluation(data: Dict[str, Any]) -> int:
             "regime": data.get("regime"),
             "above_vwap": data.get("above_vwap"),
             "entry_price": data.get("entry_price"),
+            "scanner_entry_price": data.get("scanner_entry_price") or data.get("entry_price"),
+            "refreshed_mid": data.get("refreshed_mid"),
+            "executable_limit_price": data.get("executable_limit_price"),
+            "executable_divergence": data.get("executable_divergence"),
+            "bid_ask_spread_pct": data.get("bid_ask_spread_pct"),
+            "fill_price": data.get("fill_price"),
+            "fill_status": data.get("fill_status"),
             "reasons": _dumps(data.get("reasons") or []),
             "market_snapshot": _dumps(data.get("market_snapshot") or {}),
             "raw_scanner_data": _dumps(data.get("raw_scanner_data") or {}),
@@ -577,6 +616,30 @@ def insert_candidate_evaluation(data: Dict[str, Any]) -> int:
             "position_id": data.get("position_id"),
         })
         return cur.lastrowid
+
+
+def update_candidate_execution(candidate_id: int, **fields):
+    """Attach executable-price/fill metadata to a candidate row."""
+    allowed = {
+        "action",
+        "refreshed_mid",
+        "executable_limit_price",
+        "executable_divergence",
+        "bid_ask_spread_pct",
+        "fill_price",
+        "fill_status",
+        "position_id",
+        "recommendation_id",
+    }
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not candidate_id or not updates:
+        return
+    sets = ", ".join(f"{key} = ?" for key in updates)
+    with get_connection() as conn:
+        conn.execute(
+            f"UPDATE candidate_evaluations SET {sets} WHERE id = ?",
+            [*updates.values(), candidate_id],
+        )
 
 
 def insert_candidate_price_snapshot(data: Dict[str, Any]) -> Optional[int]:
