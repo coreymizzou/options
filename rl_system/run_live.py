@@ -216,6 +216,100 @@ def maybe_run_ml_maintenance():
         logger.warning("Automatic ML maintenance failed: %s", e)
 
 
+def _alpaca_qty_by_symbol(alpaca_positions: List[Dict]) -> Dict[str, float]:
+    qty_by_symbol = {}
+    for p in alpaca_positions or []:
+        try:
+            qty_by_symbol[p.get("symbol", "")] = float(p.get("qty", 0) or 0)
+        except Exception:
+            qty_by_symbol[p.get("symbol", "")] = 0.0
+    return qty_by_symbol
+
+
+def _pending_spread_symbols(pos_data: Dict) -> tuple:
+    """Return expected long/short OCC symbols for a pending spread entry."""
+    strategy = (pos_data.get("strategy") or "").upper()
+    long_symbol = broker.build_option_symbol(
+        pos_data.get("ticker", ""),
+        pos_data.get("expiration", ""),
+        pos_data.get("option_type", "call"),
+        pos_data.get("strike", 0),
+    )
+    if "SPREAD" not in strategy:
+        return long_symbol, None
+    try:
+        notes = json.loads(pos_data.get("notes") or "{}")
+    except Exception:
+        notes = {}
+    short_strike = notes.get("short_strike")
+    short_type = notes.get("short_option_type") or pos_data.get("option_type", "call")
+    short_symbol = None
+    if short_strike:
+        short_symbol = broker.build_option_symbol(
+            pos_data.get("ticker", ""),
+            pos_data.get("expiration", ""),
+            short_type,
+            short_strike,
+        )
+    return long_symbol, short_symbol
+
+
+def _alpaca_has_complete_spread(alpaca_positions: List[Dict], pos_data: Dict) -> bool:
+    """True only when Alpaca has both expected spread legs in the right directions."""
+    long_symbol, short_symbol = _pending_spread_symbols(pos_data)
+    if not short_symbol:
+        return True
+    qty_by_symbol = _alpaca_qty_by_symbol(alpaca_positions)
+    long_qty = qty_by_symbol.get(long_symbol, 0.0)
+    short_qty = qty_by_symbol.get(short_symbol, 0.0)
+    return long_qty > 0 and short_qty < 0
+
+
+def _leg_avg_fill(leg: Dict) -> float:
+    for key in ("filled_avg_price", "avg_fill_price", "average_fill_price", "filled_price"):
+        try:
+            value = leg.get(key)
+            if value not in (None, ""):
+                return abs(float(value))
+        except Exception:
+            continue
+    return 0.0
+
+
+def _order_filled_price(order: Dict, position_data: Dict, fallback: float = 0.0) -> float:
+    """
+    Return the actual per-contract fill value.
+
+    Alpaca reports closing mleg orders as a negative parent filled_avg_price
+    (example: -6.95 credit). For spreads, the trade value is always long leg
+    fill minus short leg fill, regardless of open/close direction.
+    """
+    strategy = (position_data.get("strategy") or "").upper()
+    if "SPREAD" in strategy:
+        long_symbol, short_symbol = _pending_spread_symbols(position_data)
+        legs = order.get("legs") or []
+        if long_symbol and short_symbol and legs:
+            fills = {leg.get("symbol"): _leg_avg_fill(leg) for leg in legs}
+            long_fill = fills.get(long_symbol, 0.0)
+            short_fill = fills.get(short_symbol, 0.0)
+            if long_fill > 0 and short_fill > 0:
+                return round(max(long_fill - short_fill, 0.01), 2)
+        try:
+            parent_fill = float(order.get("filled_avg_price", 0) or 0)
+            if parent_fill:
+                return round(abs(parent_fill), 2)
+        except Exception:
+            pass
+    else:
+        try:
+            fill = float(order.get("filled_avg_price", 0) or 0)
+            if fill:
+                return round(abs(fill), 2)
+        except Exception:
+            pass
+    return round(float(fallback or 0), 2)
+
+
 # =============================================================================
 #  MARKET SNAPSHOT BUILDER
 # =============================================================================
@@ -3395,6 +3489,22 @@ def main():
                     if matched_data:
                         fill_price = float(ap.get("avg_entry_price", 0) or 0)
                         if fill_price > 0:
+                            if not _alpaca_has_complete_spread(alpaca_positions, matched_data):
+                                long_symbol, short_symbol = _pending_spread_symbols(matched_data)
+                                logger.error(
+                                    "Startup sync refused to track incomplete spread for %s: "
+                                    "long=%s short=%s. Close/manage the single-leg Alpaca position manually.",
+                                    matched_data.get("ticker"),
+                                    long_symbol,
+                                    short_symbol,
+                                )
+                                candidate_eval_id = matched_data.get("candidate_evaluation_id")
+                                if candidate_eval_id:
+                                    db.update_candidate_execution(
+                                        candidate_eval_id,
+                                        fill_status="FILLED_MISSING_SPREAD_LEG",
+                                    )
+                                continue
                             matched_data["entry_price"]  = fill_price
                             matched_data["entry_cost"]   = fill_price * 100 * matched_data.get("contracts", 1)
                             matched_data["stop_price"]   = round(fill_price * (1 - cfg.STOP_LOSS_PCT), 2)
@@ -3589,10 +3699,12 @@ def main():
                         ticker_r = exit_data.get("ticker", "?")
 
                         if status == "filled":
-                            fill_price = float(order.get("filled_avg_price", 0) or 0)
-                            if fill_price <= 0:
-                                fill_price = float(exit_data.get("estimated_exit_price", 0) or 0)
                             position = tracker.get_position(position_id) or exit_data.get("position", {})
+                            fill_price = _order_filled_price(
+                                order,
+                                position,
+                                fallback=exit_data.get("estimated_exit_price", 0),
+                            )
                             if position and fill_price > 0:
                                 _update_broker_order(
                                     oid,
@@ -3742,8 +3854,34 @@ def main():
                             order = r.json()
                             status = order.get("status", "").lower()
                             if status == "filled":
-                                fill_price = float(order.get("filled_avg_price", 0) or 0)
+                                fill_price = _order_filled_price(order, pos_data)
                                 if fill_price > 0:
+                                    alpaca_positions_now = broker.get_positions()
+                                    if not _alpaca_has_complete_spread(alpaca_positions_now, pos_data):
+                                        long_symbol, short_symbol = _pending_spread_symbols(pos_data)
+                                        logger.error(
+                                            "Filled order %s for %s is missing expected spread leg(s): "
+                                            "long=%s short=%s. Not tracking as a spread.",
+                                            oid,
+                                            pos_data.get("ticker"),
+                                            long_symbol,
+                                            short_symbol,
+                                        )
+                                        candidate_eval_id = pos_data.get("candidate_evaluation_id")
+                                        if candidate_eval_id:
+                                            db.update_candidate_execution(
+                                                candidate_eval_id,
+                                                fill_status="FILLED_MISSING_SPREAD_LEG",
+                                            )
+                                        _update_broker_order(
+                                            oid,
+                                            "FILLED",
+                                            filled_price=fill_price,
+                                            raw_payload=order,
+                                            notes="filled_missing_spread_leg_not_tracked",
+                                        )
+                                        filled_oids.append(oid)
+                                        continue
                                     fill_cost = fill_price * 100 * pos_data.get("contracts", 1)
                                     ticker_r  = pos_data.get("ticker", "?")
 

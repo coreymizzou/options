@@ -220,13 +220,14 @@ class LinearBandit:
         # L2 weight decay
         self.weights *= (1 - wd)
 
+        had_loaded_history = self.n_updates > 0
         self.n_updates += 1
         self._reward_history.append(reward)
         if len(self._reward_history) > 200:
             self._reward_history = self._reward_history[-200:]
         # Exponentially weighted mean — recent trades matter more than old ones
         # alpha=0.1 means most recent trade has 10x more weight than oldest
-        if len(self._reward_history) == 1:
+        if len(self._reward_history) == 1 and not had_loaded_history:
             self.mean_reward = float(reward)
         else:
             self.mean_reward = float(

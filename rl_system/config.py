@@ -138,6 +138,9 @@ SECTOR_MAP = {
     "NVDA":  "semiconductors",
     "AMD":   "semiconductors",
     "MU":    "semiconductors",
+    "AVGO":  "semiconductors",
+    "LRCX":  "semiconductors",
+    "QCOM":  "semiconductors",
     "AAPL":  "mega_tech",
     "MSFT":  "mega_tech",
     "GOOGL": "mega_tech",
@@ -174,7 +177,7 @@ AUTO_ALLOWED_TICKERS = {
     "NVDA", "TSLA", "AAPL", "MSFT", "META",
     "AMZN", "GOOGL", "AMD", "MU", "MSTR",
     "COIN", "PLTR", "NFLX", "CRWD", "CRM",
-    "XOM", "GLD",
+    "XOM", "GLD", "AVGO", "LRCX", "QCOM",
 }
 
 # ─── Phase 2 Hooks (not active yet) ──────────────────────────────────────────

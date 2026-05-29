@@ -111,7 +111,7 @@ WATCHLIST = [
     "NVDA", "TSLA", "AAPL", "MSFT", "META",
     "AMZN", "GOOGL", "AMD", "MU", "MSTR",
     "COIN", "PLTR", "NFLX", "CRWD", "CRM",
-    "XOM", "GLD",
+    "XOM", "GLD", "AVGO", "LRCX", "QCOM",
 ]
 
 # ── Macro-only tickers — scanned for regime context and flow detection
@@ -1239,6 +1239,36 @@ def construct_trade(
         elif "BEAR" in ema_dir:
             final_dir = "BEARISH"
 
+    high_conf_directional_flow = any(
+        f.get("direction") == final_dir and f.get("dir_confidence") == "HIGH"
+        for f in flow_signals
+    )
+    rsi_val = tech.get("rsi", 50) or 50
+    if final_dir == "BULLISH":
+        technical_confirmed = (
+            tech.get("above_vwap") is True
+            and tech.get("intraday_above_vwap") is not False
+            and "BULL" in str(ema_dir)
+            and 45 <= rsi_val <= 72
+        )
+    elif final_dir == "BEARISH":
+        technical_confirmed = (
+            tech.get("above_vwap") is False
+            and tech.get("intraday_above_vwap") is not True
+            and "BEAR" in str(ema_dir)
+            and 28 <= rsi_val <= 55
+        )
+    else:
+        technical_confirmed = False
+
+    single_leg_preferred = (
+        ivr_val <= 45
+        and final_dir in ("BULLISH", "BEARISH")
+        and high_conf_directional_flow
+        and technical_confirmed
+        and regime_n != "RISK_OFF"
+    )
+
     # ── Strategy selection
     if dte_days is not None and 1 <= dte_days <= 7:
         strategy = "LONG_STRADDLE"
@@ -1265,6 +1295,15 @@ def construct_trade(
     elif ivr_val < 30 and dte_days and dte_days < 30:
         strategy = "LONG_STRADDLE"
         rationale = f"Low IV ({ivr_val:.0f}) + catalyst within {dte_days}d — straddle"
+    elif single_leg_preferred:
+        if final_dir == "BULLISH":
+            strategy = "LONG_CALL"
+        else:
+            strategy = "LONG_PUT"
+        rationale = (
+            f"IVR {ivr_val:.0f} with high-confidence flow and technical confirmation - "
+            "favor single-leg convexity"
+        )
     elif ivr_val < 35:
         if final_dir == "BULLISH":
             strategy = "LONG_CALL"
@@ -1317,6 +1356,27 @@ def construct_trade(
 
     # Main leg
     main_leg = find_best_strike(chain_data, best_exp, spot, final_dir, delta_target=0.40, option_type=opt_type)
+
+    if main_leg and strategy in ("LONG_CALL", "LONG_PUT"):
+        bid = main_leg.get("bid") or 0
+        ask = main_leg.get("ask") or 0
+        mid = main_leg.get("mid") or 0
+        single_leg_spread_pct = (ask - bid) / mid if bid > 0 and ask > 0 and mid > 0 else 1.0
+        if single_leg_spread_pct > 0.30:
+            if strategy == "LONG_CALL":
+                strategy = "BULL_CALL_SPREAD"
+                rationale = (
+                    f"Single call market too wide ({single_leg_spread_pct:.0%}) - "
+                    "using debit spread for execution discipline"
+                )
+            else:
+                strategy = "BEAR_PUT_SPREAD"
+                rationale = (
+                    f"Single put market too wide ({single_leg_spread_pct:.0%}) - "
+                    "using debit spread for execution discipline"
+                )
+            trade["strategy"] = strategy
+            trade["rationale"] = rationale
 
     if not main_leg:
         # Fallback: compute a theoretical ~0.40-delta OTM strike via BS inversion.
@@ -1665,9 +1725,13 @@ def score_confluence(trade: dict, tech: dict, flow: list, ivr: dict,
         elif ivr_val < 55:
             score += 1
             factors.append(f"Moderate IV ({ivr_val:.0f}) — straddle viable with catalyst")
-    elif "LONG" in strategy and ivr_val < 35:
-        score += 2
-        factors.append(f"Low IV ({ivr_val:.0f}) — options cheap, favors buying premium")
+    elif "LONG" in strategy and ivr_val < 45:
+        if ivr_val < 35:
+            score += 2
+            factors.append(f"Low IV ({ivr_val:.0f}) - options cheap, favors buying premium")
+        else:
+            score += 1
+            factors.append(f"Moderate-low IV ({ivr_val:.0f}) - single-leg premium still acceptable")
     elif "SPREAD" in strategy and ivr_val > 50:
         score += 2
         factors.append(f"High IV ({ivr_val:.0f}) — spread reduces expensive premium cost")
