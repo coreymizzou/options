@@ -19,9 +19,10 @@ PROFIT_TARGET_PCT    = 0.66       # Take profit at this fraction gain (100% = 2x
 MAX_DTE_AT_ENTRY     = 60         # Never enter with more than this many days to expiry
 MIN_DTE_AT_ENTRY     = 21         # Never enter with fewer than this many days to expiry
 CLOSE_BEFORE_DTE     = 7          # Force-close any position within this many DTE
-EOD_CLOSE_CALLS      = True       # Close long call positions before overnight gap risk
-EOD_CLOSE_HOUR       = 15         # ET hour for long-call EOD close
-EOD_CLOSE_MINUTE     = 20         # ET minute for long-call EOD close
+EOD_CLOSE_CALLS      = True       # EOD close guard for short-dated long premium only
+EOD_CLOSE_MAX_DTE    = 1          # Do not EOD-close normal swing trades above this DTE
+EOD_CLOSE_HOUR       = 15         # ET hour for short-dated EOD close
+EOD_CLOSE_MINUTE     = 20         # ET minute for short-dated EOD close
 
 # ─── Cooldown / No-Chase Rules ───────────────────────────────────────────────
 COOLDOWN_HOURS       = 24         # Hours after close before re-entering same ticker

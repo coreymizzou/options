@@ -799,7 +799,7 @@ def _fetch_option_mid(ticker: str, strike: float, expiration: str,
 def is_eod_close_time() -> bool:
     """
     Returns True if current ET time is at or past the EOD close window.
-    Used to force-close long call positions before overnight gap risk.
+    Used only as a short-dated overnight risk guard.
     Configurable via EOD_CLOSE_HOUR and EOD_CLOSE_MINUTE in config.py.
     """
     if not getattr(cfg, 'EOD_CLOSE_CALLS', False):
@@ -822,6 +822,41 @@ def is_eod_close_time() -> bool:
         return eod_time <= now_et <= close_time
     except Exception:
         return False
+
+
+def _position_dte(position: Dict) -> Optional[int]:
+    exp = position.get("expiration")
+    if not exp:
+        return None
+    try:
+        exp_dt = datetime.strptime(exp, "%Y-%m-%d")
+        return (exp_dt - datetime.now()).days
+    except Exception:
+        return None
+
+
+def should_eod_close_position(position: Dict) -> Tuple[bool, str]:
+    """
+    EOD close is intentionally narrow: keep normal 21-60 DTE swing trades
+    open overnight, but allow an emergency exit for very short-dated long
+    premium positions if that mode is enabled.
+    """
+    strategy = (position.get("strategy") or "").upper()
+    option_type = (position.get("option_type") or "call").lower()
+    max_dte = int(getattr(cfg, "EOD_CLOSE_MAX_DTE", 1))
+    dte = _position_dte(position)
+
+    if dte is None or dte > max_dte:
+        return False, ""
+
+    is_long_premium = (
+        strategy in {"LONG_CALL", "LONG_PUT", "LONG_STRADDLE"}
+        or ("SPREAD" not in strategy and option_type in {"call", "put"})
+    )
+    if not is_long_premium:
+        return False, ""
+
+    return True, f"EOD_CLOSE: short-dated overnight risk ({dte} DTE)"
 
 
 def get_current_option_price(position: Dict) -> Optional[float]:
@@ -3578,7 +3613,7 @@ def main():
             elif not in_hours_for_scan and time_since_scan >= cfg.SCANNER_RUN_INTERVAL:
                 logger.debug(f"Tick {tick}: Outside market hours — skipping scanner refresh")
 
-            # ── EOD close — force-close long calls before overnight gap risk
+            # EOD guard: do not close normal swing positions; only short-dated long premium.
             maybe_run_ml_maintenance()
 
             if is_eod_close_time() and tracker.open_count > 0:
@@ -3586,8 +3621,8 @@ def main():
                     strategy = pos.get("strategy", "")
                     option_type = pos.get("option_type", "call")
                     ticker = pos.get("ticker", "")
-                    # Only close long calls — puts and spreads can hold overnight
-                    if option_type.lower() == "call" and "PUT" not in strategy.upper():
+                    should_eod_close, eod_reason = should_eod_close_position(pos)
+                    if should_eod_close:
                         if any(
                             int(v.get("position_id", -1)) == int(pid)
                             for v in _pending_exit_orders.values()
@@ -3595,8 +3630,8 @@ def main():
                             continue
                         current_price = get_current_option_price(pos)
                         if current_price and current_price > 0:
-                            logger.info(f"  [EOD] Force-closing {ticker} long call @ ${current_price:.2f} — overnight gap protection")
-                            print(f"  [EOD] Closing {ticker} call before EOD @ ${current_price:.2f}")
+                            logger.info(f"  [EOD] Force-closing {ticker} @ ${current_price:.2f} - {eod_reason}")
+                            print(f"  [EOD] Closing {ticker} before EOD @ ${current_price:.2f} - {eod_reason}")
                             if LIVE_PAPER_MODE and BROKER_AVAILABLE and broker._is_configured():
                                 ok, oid, _ = broker.place_option_order(
                                     ticker       = ticker,
@@ -3622,8 +3657,8 @@ def main():
                                         quantity=pos.get("contracts", 1),
                                         limit_price=current_price,
                                         position_id=pid,
-                                        raw_payload={"exit_reason": "EOD_CLOSE", "market_order": True},
-                                        notes="eod_call_close",
+                                        raw_payload={"exit_reason": eod_reason, "market_order": True},
+                                        notes="eod_short_dated_close",
                                     )
                                     snapshot = build_market_snapshot(
                                         {"ticker": ticker, "trade": {"main_leg": {}}, "regime_data": regime},
@@ -3633,7 +3668,7 @@ def main():
                                     _pending_exit_orders[oid] = {
                                         "position_id": pid,
                                         "ticker": ticker,
-                                        "exit_reason": "EOD_CLOSE: overnight gap protection",
+                                        "exit_reason": eod_reason,
                                         "submitted_at": datetime.now().isoformat(),
                                         "estimated_exit_price": current_price,
                                         "position": pos,
@@ -3648,13 +3683,13 @@ def main():
                                 result = tracker.close_position(
                                     pid,
                                     current_price,
-                                    "EOD_CLOSE: overnight gap protection"
+                                    eod_reason
                                 )
                                 entry_snap = json.loads(pos.get("raw_scanner_data") or "{}")
                                 entry_snap["regime_data"] = regime
                                 agent.update_on_close(
                                     position=pos,
-                                    exit_reason="EOD_CLOSE: overnight gap protection",
+                                    exit_reason=eod_reason,
                                     realized_r=result.get("realized_r", 0),
                                     entry_market_snapshot=build_market_snapshot(entry_snap),
                                     exit_market_snapshot=build_market_snapshot(
