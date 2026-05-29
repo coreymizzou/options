@@ -29,7 +29,7 @@ import traceback
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 # ─── Add scanner directory to path ───────────────────────────────────────────
 # Assumes options_scanner.py is in the parent directory or same directory.
