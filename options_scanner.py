@@ -1243,6 +1243,11 @@ def construct_trade(
         f.get("direction") == final_dir and f.get("dir_confidence") == "HIGH"
         for f in flow_signals
     )
+    directional_flow_premium = sum(
+        float(f.get("premium_paid", 0) or 0)
+        for f in flow_signals
+        if f.get("direction") == final_dir and f.get("dir_confidence") == "HIGH"
+    )
     rsi_val = tech.get("rsi", 50) or 50
     if final_dir == "BULLISH":
         technical_confirmed = (
@@ -1251,6 +1256,7 @@ def construct_trade(
             and "BULL" in str(ema_dir)
             and 45 <= rsi_val <= 72
         )
+        technically_invalid = tech.get("above_vwap") is False or rsi_val > 75
     elif final_dir == "BEARISH":
         technical_confirmed = (
             tech.get("above_vwap") is False
@@ -1258,14 +1264,19 @@ def construct_trade(
             and "BEAR" in str(ema_dir)
             and 28 <= rsi_val <= 55
         )
+        technically_invalid = tech.get("above_vwap") is True or rsi_val < 25
     else:
         technical_confirmed = False
+        technically_invalid = True
 
     single_leg_preferred = (
-        ivr_val <= 45
+        ivr_val <= 60
         and final_dir in ("BULLISH", "BEARISH")
         and high_conf_directional_flow
-        and technical_confirmed
+        and (
+            technical_confirmed
+            or (directional_flow_premium >= 1_500_000 and not technically_invalid)
+        )
         and regime_n != "RISK_OFF"
     )
 
@@ -1301,7 +1312,7 @@ def construct_trade(
         else:
             strategy = "LONG_PUT"
         rationale = (
-            f"IVR {ivr_val:.0f} with high-confidence flow and technical confirmation - "
+            f"IVR {ivr_val:.0f} with high-conviction flow/technical confirmation - "
             "favor single-leg convexity"
         )
     elif ivr_val < 35:
@@ -1362,7 +1373,7 @@ def construct_trade(
         ask = main_leg.get("ask") or 0
         mid = main_leg.get("mid") or 0
         single_leg_spread_pct = (ask - bid) / mid if bid > 0 and ask > 0 and mid > 0 else 1.0
-        if single_leg_spread_pct > 0.30:
+        if single_leg_spread_pct > 0.45:
             if strategy == "LONG_CALL":
                 strategy = "BULL_CALL_SPREAD"
                 rationale = (
