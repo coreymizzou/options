@@ -73,6 +73,7 @@ LOG_SCANNER_SCORECARD       = True  # Log per-ticker scanner scores each refresh
 ML_ENTRY_MODEL_ENABLED = True
 ML_ENTRY_MODEL_PATH = "rl_system/models/entry_model.pkl"
 ML_MIN_TRAINING_ROWS = 100
+ML_ENTRY_MODEL_OBSERVE_ONLY = True # Log ML predictions, but do not alter live entries yet
 ML_MIN_EXPECTED_R = 0.03          # Require positive expected edge when model is active
 ML_CONFIDENCE_BLEND = 0.35        # Blend model confidence into agent confidence
 CANDIDATE_SNAPSHOT_LOOKBACK_HOURS = 30
@@ -174,6 +175,7 @@ AUTO_MAX_CAPITAL_PCT = 0.90       # Max % of account to deploy at once in --auto
                                   # e.g. 0.40 = never risk more than $10,000 simultaneously
                                   # Each position still respects MAX_RISK_DOLLARS
 MAX_EXECUTABLE_PRICE_DIVERGENCE = 0.25  # Skip entries if marketable limit is >25% from scanner price
+SPREAD_ORDER_LIMIT_MARKUP = 0.12  # Cap spread buy limits to net_mid * (1 + markup)
 AUTO_ALLOWED_TICKERS = {
     "NVDA", "TSLA", "AAPL", "MSFT", "META",
     "AMZN", "GOOGL", "AMD", "MU", "MSTR",

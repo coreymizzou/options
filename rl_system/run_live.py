@@ -2019,8 +2019,10 @@ def evaluate_new_candidates(
     """
     actions_taken = []
     pending_entry_cost = 0.0
+    pending_entry_count = 0
     if pending_orders:
         for pdata in pending_orders.values():
+            pending_entry_count += 1
             pending_entry_cost += (
                 (pdata.get("limit_price") or pdata.get("entry_price") or 0)
                 * 100
@@ -2085,8 +2087,12 @@ def evaluate_new_candidates(
                 continue
         elif auto_mode:
             # Auto mode — position and capital limits
-            if tracker.open_count >= cfg.AUTO_MAX_POSITIONS:
-                logger.info(f"[AUTO] Max positions ({cfg.AUTO_MAX_POSITIONS}) reached — skipping {ticker}")
+            reserved_positions = tracker.open_count + pending_entry_count
+            if reserved_positions >= cfg.AUTO_MAX_POSITIONS:
+                logger.info(
+                    f"[AUTO] Max positions ({cfg.AUTO_MAX_POSITIONS}) reached "
+                    f"({tracker.open_count} open + {pending_entry_count} pending) - skipping {ticker}"
+                )
                 break
             total_deployed = sum(
                 p.get("entry_cost", 0) for p in tracker.open_positions.values()
@@ -2101,8 +2107,12 @@ def evaluate_new_candidates(
                 )
                 continue
         else:
-            if tracker.open_count >= cfg.MAX_CONCURRENT_POSITIONS:
-                logger.info(f"Max positions ({cfg.MAX_CONCURRENT_POSITIONS}) reached — skipping {ticker}")
+            reserved_positions = tracker.open_count + pending_entry_count
+            if reserved_positions >= cfg.MAX_CONCURRENT_POSITIONS:
+                logger.info(
+                    f"Max positions ({cfg.MAX_CONCURRENT_POSITIONS}) reached "
+                    f"({tracker.open_count} open + {pending_entry_count} pending) - skipping {ticker}"
+                )
                 break
 
         # Skip if outside market hours entry window
@@ -2157,18 +2167,20 @@ def evaluate_new_candidates(
             if ml_prediction:
                 expected_r = ml_prediction["expected_r"]
                 model_conf = ml_prediction["confidence"]
-                blend = getattr(cfg, "ML_CONFIDENCE_BLEND", 0.35)
-                confidence = round((1 - blend) * confidence + blend * model_conf, 3)
+                ml_observe_only = getattr(cfg, "ML_ENTRY_MODEL_OBSERVE_ONLY", False)
                 reasons = [
-                    f"ML expected_R {expected_r:+.2f} "
+                    f"ML{' observe-only' if ml_observe_only else ''} expected_R {expected_r:+.2f} "
                     f"(model_conf {model_conf:.2f}, n={ml_prediction.get('n_samples')})"
                 ] + reasons
-                if expected_r < getattr(cfg, "ML_MIN_EXPECTED_R", 0.0):
-                    action = "WAIT"
-                    reasons = [
-                        f"ML edge below threshold ({expected_r:+.2f}R < "
-                        f"{getattr(cfg, 'ML_MIN_EXPECTED_R', 0.0):+.2f}R)"
-                    ] + reasons
+                if not ml_observe_only:
+                    blend = getattr(cfg, "ML_CONFIDENCE_BLEND", 0.35)
+                    confidence = round((1 - blend) * confidence + blend * model_conf, 3)
+                    if expected_r < getattr(cfg, "ML_MIN_EXPECTED_R", 0.0):
+                        action = "WAIT"
+                        reasons = [
+                            f"ML edge below threshold ({expected_r:+.2f}R < "
+                            f"{getattr(cfg, 'ML_MIN_EXPECTED_R', 0.0):+.2f}R)"
+                        ] + reasons
 
         # Inject tier 2 signals into reasons so user sees them in the alert
         tier2_notes = []
@@ -2399,14 +2411,21 @@ def evaluate_new_candidates(
                                     short_q = get_live_option_quote(short_symbol) if get_live_option_quote else {}
                                     if long_q.get("mid", 0) > 0 and short_q.get("mid", 0) > 0:
                                         use_price = round(max(long_q["mid"] - short_q["mid"], 0.01), 2)
-                                        executable_limit = round(
+                                        raw_executable_limit = round(
                                             max(long_q.get("ask", 0) - short_q.get("bid", 0), 0.01),
                                             2
+                                        )
+                                        limit_markup = getattr(cfg, "SPREAD_ORDER_LIMIT_MARKUP", 0.12)
+                                        capped_executable_limit = round(use_price * (1 + limit_markup), 2)
+                                        executable_limit = round(
+                                            max(min(raw_executable_limit, capped_executable_limit), use_price),
+                                            2,
                                         )
                                         fresh = {
                                             "bid": round(max(long_q.get("bid", 0) - short_q.get("ask", 0), 0.01), 2),
                                             "ask": executable_limit,
                                             "mid": use_price,
+                                            "raw_ask": raw_executable_limit,
                                             "long_mid": long_q["mid"],
                                             "short_mid": short_q["mid"],
                                             "long_ask": long_q.get("ask"),
@@ -2415,7 +2434,8 @@ def evaluate_new_candidates(
                                         logger.info(
                                             f"  {ticker} spread legs refreshed: "
                                             f"long=${long_q['mid']:.2f} short=${short_q['mid']:.2f} "
-                                            f"net_mid=${use_price:.2f} order_limit=${executable_limit:.2f}"
+                                            f"net_mid=${use_price:.2f} order_limit=${executable_limit:.2f} "
+                                            f"raw_ask=${raw_executable_limit:.2f}"
                                         )
                                     else:
                                         use_price = 0
@@ -2552,6 +2572,8 @@ def evaluate_new_candidates(
                                     pdata["limit_price"] = order_limit_price  # actual placed limit, not cached scanner price
                                     pdata["candidate_evaluation_id"] = candidate_eval_id
                                     pending_orders[oid] = pdata
+                                    pending_entry_count += 1
+                                    pending_entry_cost += order_limit_price * 100 * contracts_
                                     save_pending_orders(pending_orders)
                             else:
                                 db.update_candidate_execution(
