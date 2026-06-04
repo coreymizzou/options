@@ -2517,6 +2517,30 @@ def evaluate_new_candidates(
                         else:
                             unique_tag = f"rl_{ticker}_{int(time.time())}"
                             is_spread = "SPREAD" in strategy_
+                            if not is_spread:
+                                max_single_premium = getattr(
+                                    cfg, "AUTO_MAX_SINGLE_LEG_PREMIUM", 20.0
+                                )
+                                max_single_cost = getattr(
+                                    cfg, "AUTO_MAX_SINGLE_LEG_COST", 2000.0
+                                )
+                                single_leg_cost = order_limit_price * 100 * contracts_
+                                if (
+                                    order_limit_price > max_single_premium
+                                    or single_leg_cost > max_single_cost
+                                ):
+                                    db.update_candidate_execution(
+                                        candidate_eval_id,
+                                        executable_limit_price=order_limit_price,
+                                        fill_status="SKIPPED_SINGLE_LEG_RISK_CAP",
+                                    )
+                                    logger.warning(
+                                        f"  {ticker} single-leg order blocked by hard risk cap "
+                                        f"(limit=${order_limit_price:.2f}, cost=${single_leg_cost:.0f}, "
+                                        f"max_premium=${max_single_premium:.2f}, max_cost=${max_single_cost:.0f})"
+                                    )
+                                    _just_tracked = False
+                                    continue
                             if is_spread and short_:
                                 ok, oid, _ = broker.place_spread_order(
                                     ticker          = ticker,

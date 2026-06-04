@@ -128,9 +128,8 @@ MACRO_ONLY_TICKERS = {
 ACCOUNT_SIZE = 25_000          # Configurable account size ($)
 MAX_RISK_PCT = 0.02            # Max risk per trade (2%)
 MAX_RISK_DOLLARS = ACCOUNT_SIZE * MAX_RISK_PCT  # $500
-MAX_SINGLE_LEG_PREMIUM = 20.00 # Prefer spreads above this unless flow is exceptional
+MAX_SINGLE_LEG_PREMIUM = 20.00 # Hard scanner cap: prefer spreads above this
 MAX_SINGLE_LEG_SPREAD_PCT = 0.60
-SINGLE_LEG_PREMIUM_OVERRIDE_FLOW = 2_000_000
 
 # API Keys (from environment)
 TRADIER_API_KEY = os.environ.get("TRADIER_API_KEY", "")
@@ -1376,10 +1375,7 @@ def construct_trade(
         ask = main_leg.get("ask") or 0
         mid = main_leg.get("mid") or 0
         single_leg_spread_pct = (ask - bid) / mid if bid > 0 and ask > 0 and mid > 0 else 1.0
-        premium_too_large = (
-            mid > MAX_SINGLE_LEG_PREMIUM
-            and directional_flow_premium < SINGLE_LEG_PREMIUM_OVERRIDE_FLOW
-        )
+        premium_too_large = mid > MAX_SINGLE_LEG_PREMIUM
         market_too_wide = single_leg_spread_pct > MAX_SINGLE_LEG_SPREAD_PCT
         if market_too_wide or premium_too_large:
             if strategy == "LONG_CALL":
