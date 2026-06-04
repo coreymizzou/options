@@ -2879,6 +2879,8 @@ def _cmd_reset(keep_weights: bool = True):
     print(f"    - All recommendations")
     print(f"    - All cooldowns")
     print(f"    - Trade journal")
+    print(f"    - Runtime state: pending orders, action state, bankroll state")
+    print(f"  This will preserve stored API keys. Use --reset-keys to clear keys.")
     if keep_weights:
         print(f"    - Position/recommendation links on ML candidates (candidate history kept)")
     if not keep_weights:
@@ -2915,7 +2917,15 @@ def _cmd_reset(keep_weights: bool = True):
         conn.execute("DELETE FROM trade_journal")
         conn.execute("DELETE FROM positions")
         conn.execute("DELETE FROM cooldowns")
-        conn.execute("DELETE FROM system_state")
+        conn.execute(
+            "DELETE FROM system_state WHERE key IN (?, ?, ?, ?)",
+            (
+                "action_state",
+                db.PENDING_ORDERS_KEY,
+                db.PENDING_EXIT_ORDERS_KEY,
+                "bankroll_remaining",
+            ),
+        )
         if not keep_weights:
             conn.execute("DELETE FROM agent_weights")
 
