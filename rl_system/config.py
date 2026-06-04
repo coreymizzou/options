@@ -16,6 +16,14 @@ MAX_CONCURRENT_POSITIONS = 4      # Hard cap on simultaneous open positions
 # ─── Position Management ─────────────────────────────────────────────────────
 STOP_LOSS_PCT        = 0.33       # Close position if down this fraction of entry cost
 PROFIT_TARGET_PCT    = 0.66       # Take profit at this fraction gain (100% = 2x)
+TRAILING_PROFIT_ENABLED = True    # Protect meaningful winners before they round-trip
+TRAILING_PROFIT_ACTIVATE_R = 0.35 # Start trailing after position reaches this R
+TRAILING_PROFIT_GIVEBACK_R = 0.25 # Exit if it gives back this much R from peak
+TRAILING_PROFIT_MIN_LOCK_R = 0.05 # Do not trail-exit below this remaining profit
+STALLED_EXIT_ENABLED = True       # Exit positions that fail to make progress
+STALLED_EXIT_MIN_DAYS = 5         # Minimum hold before stalled exit can fire
+STALLED_EXIT_MAX_ABS_R = 0.10     # Near-flat band after several days
+STALLED_EXIT_MAX_MFE_R = 0.20     # Never made a useful move in our favor
 MAX_DTE_AT_ENTRY     = 60         # Never enter with more than this many days to expiry
 MIN_DTE_AT_ENTRY     = 21         # Never enter with fewer than this many days to expiry
 CLOSE_BEFORE_DTE     = 7          # Force-close any position within this many DTE
@@ -81,6 +89,7 @@ MAX_CANDIDATE_SNAPSHOT_TARGETS = 1000
 ML_AUTO_MAINTENANCE_ENABLED = True
 ML_AUTO_MAINTENANCE_HOUR_ET = 16   # Run once daily after the market closes
 ML_AUTO_TARGET_HORIZON = "eod"
+ML_AUTO_ALLOW_TARGET_FALLBACKS = True  # Keep training alive until strict EOD labels are plentiful
 
 # ─── Drawdown Controls ───────────────────────────────────────────────────────
 MAX_DAILY_DRAWDOWN_PCT  = 0.06   # Force no new entries if daily P&L down > 6% of account
@@ -174,6 +183,7 @@ AUTO_MAX_POSITIONS   = 4          # Max concurrent positions in --auto mode
 AUTO_MAX_CAPITAL_PCT = 0.90       # Max % of account to deploy at once in --auto mode
                                   # e.g. 0.40 = never risk more than $10,000 simultaneously
                                   # Each position still respects MAX_RISK_DOLLARS
+AUTO_MAX_CANDIDATES_TO_EVALUATE = 10 # Look past blocked/top-heavy candidates before giving up
 MAX_EXECUTABLE_PRICE_DIVERGENCE = 0.25  # Skip entries if marketable limit is >25% from scanner price
 SPREAD_ORDER_LIMIT_MARKUP = 0.12  # Cap spread buy limits to net_mid * (1 + markup)
 AUTO_ALLOWED_TICKERS = {

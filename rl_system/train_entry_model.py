@@ -23,7 +23,17 @@ def _json(value):
         return {}
 
 
-def _target(row, horizon: str = "eod"):
+def _target(row, horizon: str = "eod", allow_fallbacks: bool = True):
+    if not allow_fallbacks:
+        key = {
+            "1h": "outcome_1h_r",
+            "eod": "outcome_eod_r",
+            "1d": "outcome_1d_r",
+            "auto": "outcome_1d_r",
+        }.get(horizon, "outcome_eod_r")
+        val = row[key]
+        return float(val) if val is not None else None
+
     orders = {
         "1h": ("outcome_1h_r", "outcome_eod_r", "outcome_1d_r"),
         "eod": ("outcome_eod_r", "outcome_1h_r", "outcome_1d_r"),
@@ -62,12 +72,12 @@ def load_training_rows(db_path: Path):
     return rows
 
 
-def build_matrix(rows, horizon: str = "eod"):
+def build_matrix(rows, horizon: str = "eod", allow_fallbacks: bool = True):
     X, y = [], []
     for row in rows:
         scanner_result = _json(row["raw_scanner_data"])
         snapshot = _json(row["market_snapshot"])
-        target = _target(row, horizon=horizon)
+        target = _target(row, horizon=horizon, allow_fallbacks=allow_fallbacks)
         if not scanner_result or target is None:
             continue
         features, _ = extract_candidate_features(
@@ -91,12 +101,18 @@ def main():
         default="eod",
         help="Outcome horizon to train against, with fallbacks when missing",
     )
+    parser.add_argument(
+        "--strict-target",
+        action="store_true",
+        help="Use only the requested target horizon instead of falling back to other horizons",
+    )
     args = parser.parse_args()
 
     db_path = Path(args.db).resolve()
     out_path = Path(args.out).resolve()
     rows = load_training_rows(db_path)
-    X, y = build_matrix(rows, horizon=args.target_horizon)
+    allow_fallbacks = not args.strict_target
+    X, y = build_matrix(rows, horizon=args.target_horizon, allow_fallbacks=allow_fallbacks)
 
     if len(y) < args.min_rows:
         print(f"Not enough labeled rows: {len(y)} found, need {args.min_rows}.")
@@ -150,7 +166,11 @@ def main():
         "feature_names": FEATURE_NAMES,
         "trained_at": datetime.now().isoformat(),
         "n_samples": int(len(y)),
-        "target": f"{args.target_horizon}_with_fallbacks",
+        "target": (
+            f"{args.target_horizon}_with_fallbacks"
+            if allow_fallbacks else
+            f"{args.target_horizon}_strict"
+        ),
         "metrics": {
             "mae": mae,
             "r2": r2,
@@ -166,6 +186,12 @@ def main():
     joblib.dump(artifact, out_path)
 
     print(f"Saved entry model: {out_path}")
+    target_label = (
+        f"{args.target_horizon} with fallbacks"
+        if allow_fallbacks else
+        f"{args.target_horizon} strict"
+    )
+    print(f"Target: {target_label}")
     print(f"Rows: {len(y)}  MAE: {mae:.3f}R  R2: {r2:.3f}  Directional accuracy: {directional_accuracy:.1%}")
     if importance:
         print("Top features:")

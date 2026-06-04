@@ -25,6 +25,14 @@ from config import (
     MAX_CONCURRENT_POSITIONS,
     STOP_LOSS_PCT,
     PROFIT_TARGET_PCT,
+    TRAILING_PROFIT_ENABLED,
+    TRAILING_PROFIT_ACTIVATE_R,
+    TRAILING_PROFIT_GIVEBACK_R,
+    TRAILING_PROFIT_MIN_LOCK_R,
+    STALLED_EXIT_ENABLED,
+    STALLED_EXIT_MIN_DAYS,
+    STALLED_EXIT_MAX_ABS_R,
+    STALLED_EXIT_MAX_MFE_R,
     CLOSE_BEFORE_DTE,
     COOLDOWN_HOURS,
     NO_REENTRY_WHILE_OPEN,
@@ -170,6 +178,24 @@ class PositionTracker:
         # Current value
         current_value = current_option_price * 100 * contracts
         pct_of_entry  = current_option_price / entry_price if entry_price > 0 else 1
+        current_r = (current_value - entry_cost) / entry_cost if entry_cost > 0 else 0.0
+        days_held = mins_held / (60 * 24) if mins_held else 0.0
+
+        recent_snapshots = []
+        peak_r = current_r
+        try:
+            recent_snapshots = db.get_recent_snapshots(position.get("id"), limit=500)
+            observed_rs = [
+                float(s.get("unrealized_r"))
+                for s in recent_snapshots
+                if s.get("unrealized_r") is not None
+            ]
+            if observed_rs:
+                peak_r = max(max(observed_rs), current_r)
+        except Exception as e:
+            logger.debug(
+                f"Could not load recent snapshots for trailing/stall exit: {e}"
+            )
 
         # 1. Stop loss
         if pct_of_entry <= (1 - STOP_LOSS_PCT):
@@ -180,6 +206,32 @@ class PositionTracker:
         if pct_of_entry >= (1 + PROFIT_TARGET_PCT):
             gain = current_value - entry_cost
             return True, f"TARGET_HIT: up {(pct_of_entry-1)*100:.0f}% (+${gain:.2f})"
+
+        # 2b. Trailing profit protection
+        if (
+            TRAILING_PROFIT_ENABLED
+            and peak_r >= TRAILING_PROFIT_ACTIVATE_R
+            and current_r >= TRAILING_PROFIT_MIN_LOCK_R
+            and (peak_r - current_r) >= TRAILING_PROFIT_GIVEBACK_R
+        ):
+            gain = current_value - entry_cost
+            return True, (
+                f"TRAILING_PROFIT: peak {peak_r:+.2f}R, now {current_r:+.2f}R "
+                f"(+${gain:.2f})"
+            )
+
+        # 2c. Stalled trade exit
+        if (
+            STALLED_EXIT_ENABLED
+            and days_held >= STALLED_EXIT_MIN_DAYS
+            and abs(current_r) <= STALLED_EXIT_MAX_ABS_R
+            and peak_r < STALLED_EXIT_MAX_MFE_R
+        ):
+            pnl = current_value - entry_cost
+            return True, (
+                f"STALLED_EXIT: held {days_held:.1f}d, peak {peak_r:+.2f}R, "
+                f"now {current_r:+.2f}R (${pnl:+.2f})"
+            )
 
         # 3. DTE force-close
         if position.get("expiration"):

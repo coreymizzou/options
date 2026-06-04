@@ -188,6 +188,8 @@ def maybe_run_ml_maintenance():
             "--min-rows",
             str(getattr(cfg, "ML_MIN_TRAINING_ROWS", 100)),
         ]
+        if not getattr(cfg, "ML_AUTO_ALLOW_TARGET_FALLBACKS", True):
+            train_cmd.append("--strict-target")
 
         label = subprocess.run(
             label_cmd,
@@ -2029,7 +2031,9 @@ def evaluate_new_candidates(
                 * (pdata.get("contracts") or 1)
             )
 
-    for scanner_result in scanner_results[:5]:   # top 5 candidates only
+    max_candidates = int(getattr(cfg, "AUTO_MAX_CANDIDATES_TO_EVALUATE", 5))
+    max_candidates = max(1, max_candidates)
+    for scanner_result in scanner_results[:max_candidates]:
         ticker = scanner_result.get("ticker", "?").upper()
         scanner_result["regime_data"] = regime
 

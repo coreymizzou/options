@@ -8,11 +8,13 @@ it depends only on the existing database schema and raw_scanner_data snapshots.
 
 import argparse
 import json
+import re
 import sqlite3
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from statistics import mean
+from typing import Optional
 
 
 DEFAULT_DB = Path("./scanner_data_live.db")
@@ -176,6 +178,75 @@ def _print_count_bucket(title: str, rows: list[dict], key: str):
         print(f"  {str(bucket)[:18]:<18} {count:>4}")
 
 
+def _target_r(row: dict, horizon: str = "eod") -> Optional[float]:
+    keys = {
+        "1h": ("outcome_1h_r",),
+        "eod": ("outcome_eod_r",),
+        "1d": ("outcome_1d_r",),
+        "auto": ("outcome_eod_r", "outcome_1h_r", "outcome_1d_r"),
+    }.get(horizon, ("outcome_eod_r",))
+    for key in keys:
+        value = row.get(key)
+        if value is not None:
+            try:
+                return float(value)
+            except Exception:
+                return None
+    return None
+
+
+def _ml_expected_r(row: dict) -> Optional[float]:
+    raw = row.get("reasons")
+    try:
+        reasons = json.loads(raw or "[]")
+    except Exception:
+        reasons = []
+    if not isinstance(reasons, list):
+        return None
+    text = " ".join(str(r) for r in reasons)
+    match = re.search(r"expected_R\s+([+-]?\d+(?:\.\d+)?)", text)
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except Exception:
+        return None
+
+
+def _print_candidate_bucket(title: str, rows: list[dict], key_fn, horizon: str, min_count: int):
+    buckets = defaultdict(list)
+    for row in rows:
+        target = _target_r(row, horizon=horizon)
+        if target is None:
+            continue
+        try:
+            buckets[key_fn(row)].append(target)
+        except Exception:
+            buckets["unknown"].append(target)
+    if not buckets:
+        return
+    print(f"\n{title} ({horizon} outcome)")
+    print("  bucket                n   win%    avgR   totalR   bestR  worstR")
+    print("  " + "-" * 62)
+    for key, vals in sorted(
+        buckets.items(),
+        key=lambda item: (len(item[1]), sum(item[1])),
+        reverse=True,
+    ):
+        if len(vals) < min_count:
+            continue
+        wins = sum(1 for v in vals if v > 0)
+        print(
+            f"  {str(key)[:18]:<18} "
+            f"{len(vals):>4} "
+            f"{wins / len(vals) * 100:>6.1f} "
+            f"{mean(vals):>7.3f} "
+            f"{sum(vals):>8.2f} "
+            f"{max(vals):>7.2f} "
+            f"{min(vals):>7.2f}"
+        )
+
+
 def build_enriched_rows(rows: list[dict]) -> list[dict]:
     enriched = []
     for row in rows:
@@ -201,6 +272,12 @@ def main():
     )
     parser.add_argument("--db", default=str(DEFAULT_DB), help="SQLite DB path")
     parser.add_argument("--min-count", type=int, default=2, help="Minimum bucket size")
+    parser.add_argument(
+        "--candidate-horizon",
+        choices=("1h", "eod", "1d", "auto"),
+        default="eod",
+        help="Candidate outcome horizon to summarize",
+    )
     args = parser.parse_args()
 
     db_path = Path(args.db)
@@ -210,37 +287,82 @@ def main():
     rows = build_enriched_rows(_load_rows(db_path))
     if not rows:
         print("No closed trades found.")
-        return
+    else:
+        realized = [float(r.get("realized_r") or 0) for r in rows]
+        winners = sum(1 for r in realized if r > 0)
+        print(f"Closed trades: {len(rows)}")
+        print(f"Win rate:      {winners / len(rows) * 100:.1f}%")
+        print(f"Avg R:         {mean(realized):+.3f}R")
+        print(f"Total R:       {sum(realized):+.2f}R")
+        print(f"Best/Worst:    {max(realized):+.2f}R / {min(realized):+.2f}R")
 
-    realized = [float(r.get("realized_r") or 0) for r in rows]
-    winners = sum(1 for r in realized if r > 0)
-    print(f"Closed trades: {len(rows)}")
-    print(f"Win rate:      {winners / len(rows) * 100:.1f}%")
-    print(f"Avg R:         {mean(realized):+.3f}R")
-    print(f"Total R:       {sum(realized):+.2f}R")
-    print(f"Best/Worst:    {max(realized):+.2f}R / {min(realized):+.2f}R")
+        groups = [
+            ("By Strategy", lambda r: r["_strategy"]),
+            ("By Direction", lambda r: r["_direction"]),
+            ("By Ticker", lambda r: r["_ticker"]),
+            ("By Entry Hour", lambda r: r["_entry_hour"]),
+            ("By Regime", lambda r: r["_regime"]),
+            ("By Confluence Band", lambda r: r["_score_band"]),
+            ("By IVR Band", lambda r: r["_ivr_band"]),
+            ("By Flow Confidence", lambda r: r["_flow_conf"]),
+            ("By VWAP At Entry", lambda r: r["_above_vwap"]),
+        ]
 
-    groups = [
-        ("By Strategy", lambda r: r["_strategy"]),
-        ("By Direction", lambda r: r["_direction"]),
-        ("By Ticker", lambda r: r["_ticker"]),
-        ("By Entry Hour", lambda r: r["_entry_hour"]),
-        ("By Regime", lambda r: r["_regime"]),
-        ("By Confluence Band", lambda r: r["_score_band"]),
-        ("By IVR Band", lambda r: r["_ivr_band"]),
-        ("By Flow Confidence", lambda r: r["_flow_conf"]),
-        ("By VWAP At Entry", lambda r: r["_above_vwap"]),
-    ]
-
-    for title, key_fn in groups:
-        _print_bucket(title, _bucket_rows(rows, key_fn), args.min_count)
+        for title, key_fn in groups:
+            _print_bucket(title, _bucket_rows(rows, key_fn), args.min_count)
 
     candidates = _load_candidate_rows(db_path)
     if candidates:
         print(f"\nCandidate evaluations logged: {len(candidates)}")
         _print_count_bucket("Candidates By Action", candidates, "action")
+        _print_count_bucket("Candidates By Fill Status", candidates, "fill_status")
         _print_count_bucket("Candidates By Flow Confidence", candidates, "flow_confidence")
         _print_count_bucket("Candidates By Regime", candidates, "regime")
+
+        labeled = [
+            c for c in candidates
+            if _target_r(c, horizon=args.candidate_horizon) is not None
+        ]
+        print(f"Candidate labels usable for {args.candidate_horizon}: {len(labeled)}")
+        _print_candidate_bucket(
+            "Candidate Outcomes By Strategy",
+            candidates,
+            lambda r: r.get("strategy") or "unknown",
+            args.candidate_horizon,
+            args.min_count,
+        )
+        _print_candidate_bucket(
+            "Candidate Outcomes By Direction",
+            candidates,
+            lambda r: r.get("direction") or "unknown",
+            args.candidate_horizon,
+            args.min_count,
+        )
+        _print_candidate_bucket(
+            "Candidate Outcomes By Action",
+            candidates,
+            lambda r: r.get("action") or "unknown",
+            args.candidate_horizon,
+            args.min_count,
+        )
+        _print_candidate_bucket(
+            "Candidate Outcomes By Fill Status",
+            candidates,
+            lambda r: r.get("fill_status") or "not_submitted",
+            args.candidate_horizon,
+            args.min_count,
+        )
+        _print_candidate_bucket(
+            "Candidate Outcomes By ML Opinion",
+            candidates,
+            lambda r: (
+                "ml_positive" if (_ml_expected_r(r) or 0) > 0
+                else "ml_negative" if _ml_expected_r(r) is not None
+                else "no_ml"
+            ),
+            args.candidate_horizon,
+            args.min_count,
+        )
 
 
 if __name__ == "__main__":

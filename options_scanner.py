@@ -128,6 +128,9 @@ MACRO_ONLY_TICKERS = {
 ACCOUNT_SIZE = 25_000          # Configurable account size ($)
 MAX_RISK_PCT = 0.02            # Max risk per trade (2%)
 MAX_RISK_DOLLARS = ACCOUNT_SIZE * MAX_RISK_PCT  # $500
+MAX_SINGLE_LEG_PREMIUM = 20.00 # Prefer spreads above this unless flow is exceptional
+MAX_SINGLE_LEG_SPREAD_PCT = 0.60
+SINGLE_LEG_PREMIUM_OVERRIDE_FLOW = 2_000_000
 
 # API Keys (from environment)
 TRADIER_API_KEY = os.environ.get("TRADIER_API_KEY", "")
@@ -1270,13 +1273,13 @@ def construct_trade(
         technically_invalid = True
 
     single_leg_preferred = (
-        ivr_val <= 60
-        and final_dir in ("BULLISH", "BEARISH")
+        final_dir in ("BULLISH", "BEARISH")
         and high_conf_directional_flow
         and (
             technical_confirmed
-            or (directional_flow_premium >= 1_500_000 and not technically_invalid)
+            or directional_flow_premium >= 750_000
         )
+        and not technically_invalid
         and regime_n != "RISK_OFF"
     )
 
@@ -1293,6 +1296,15 @@ def construct_trade(
         else:
             strategy = "LONG_PUT"
             rationale = f"Earnings in {dte_days} days — directional + vega play"
+    elif single_leg_preferred:
+        if final_dir == "BULLISH":
+            strategy = "LONG_CALL"
+        else:
+            strategy = "LONG_PUT"
+        rationale = (
+            f"High-conviction ${directional_flow_premium/1000:.0f}k flow - "
+            "favor single-leg convexity"
+        )
     elif regime_n == "RISK_OFF":
         strategy = "BEAR_PUT_SPREAD"
         rationale = "Risk-off market regime — defensive bearish spread"
@@ -1306,15 +1318,6 @@ def construct_trade(
     elif ivr_val < 30 and dte_days and dte_days < 30:
         strategy = "LONG_STRADDLE"
         rationale = f"Low IV ({ivr_val:.0f}) + catalyst within {dte_days}d — straddle"
-    elif single_leg_preferred:
-        if final_dir == "BULLISH":
-            strategy = "LONG_CALL"
-        else:
-            strategy = "LONG_PUT"
-        rationale = (
-            f"IVR {ivr_val:.0f} with high-conviction flow/technical confirmation - "
-            "favor single-leg convexity"
-        )
     elif ivr_val < 35:
         if final_dir == "BULLISH":
             strategy = "LONG_CALL"
@@ -1373,18 +1376,31 @@ def construct_trade(
         ask = main_leg.get("ask") or 0
         mid = main_leg.get("mid") or 0
         single_leg_spread_pct = (ask - bid) / mid if bid > 0 and ask > 0 and mid > 0 else 1.0
-        if single_leg_spread_pct > 0.45:
+        premium_too_large = (
+            mid > MAX_SINGLE_LEG_PREMIUM
+            and directional_flow_premium < SINGLE_LEG_PREMIUM_OVERRIDE_FLOW
+        )
+        market_too_wide = single_leg_spread_pct > MAX_SINGLE_LEG_SPREAD_PCT
+        if market_too_wide or premium_too_large:
             if strategy == "LONG_CALL":
                 strategy = "BULL_CALL_SPREAD"
+                fallback_reason = (
+                    f"single call premium too large (${mid:.2f})"
+                    if premium_too_large else
+                    f"single call market too wide ({single_leg_spread_pct:.0%})"
+                )
                 rationale = (
-                    f"Single call market too wide ({single_leg_spread_pct:.0%}) - "
-                    "using debit spread for execution discipline"
+                    f"{fallback_reason} - using debit spread for execution discipline"
                 )
             else:
                 strategy = "BEAR_PUT_SPREAD"
+                fallback_reason = (
+                    f"single put premium too large (${mid:.2f})"
+                    if premium_too_large else
+                    f"single put market too wide ({single_leg_spread_pct:.0%})"
+                )
                 rationale = (
-                    f"Single put market too wide ({single_leg_spread_pct:.0%}) - "
-                    "using debit spread for execution discipline"
+                    f"{fallback_reason} - using debit spread for execution discipline"
                 )
             trade["strategy"] = strategy
             trade["rationale"] = rationale
