@@ -186,6 +186,8 @@ AUTO_MAX_CAPITAL_PCT = 0.90       # Max % of account to deploy at once in --auto
 AUTO_MAX_CANDIDATES_TO_EVALUATE = 10 # Look past blocked/top-heavy candidates before giving up
 MAX_EXECUTABLE_PRICE_DIVERGENCE = 0.25  # Skip entries if marketable limit is >25% from scanner price
 SPREAD_ORDER_LIMIT_MARKUP = 0.12  # Cap spread buy limits to net_mid * (1 + markup)
+SPREAD_ENTRY_MAX_RAW_ASK_MULT = 1.35  # Skip spreads when raw executable ask is too far above mid
+SPREAD_EXIT_LIMIT_MARKDOWN = 0.08  # Sell spread exits at mid less this cushion instead of market
 AUTO_MAX_SINGLE_LEG_PREMIUM = 20.00 # Hard live cap per-share; $20 = $2,000 per contract
 AUTO_MAX_SINGLE_LEG_COST = 2_000.0  # Hard live cap per single-leg position
 AUTO_ALLOWED_TICKERS = {

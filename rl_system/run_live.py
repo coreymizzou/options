@@ -861,6 +861,16 @@ def should_eod_close_position(position: Dict) -> Tuple[bool, str]:
     return True, f"EOD_CLOSE: short-dated overnight risk ({dte} DTE)"
 
 
+def _spread_exit_limit_price(position: Dict, current_mid: float) -> float:
+    """Use controlled spread credits for exits; market spread closes can slip badly."""
+    try:
+        markdown = float(getattr(cfg, "SPREAD_EXIT_LIMIT_MARKDOWN", 0.08))
+    except Exception:
+        markdown = 0.08
+    current_mid = max(float(current_mid or 0), 0.01)
+    return round(max(current_mid * (1 - markdown), 0.01), 2)
+
+
 def get_current_option_price(position: Dict) -> Optional[float]:
     """
     Fetch the current net price for an open position.
@@ -1629,8 +1639,10 @@ def evaluate_open_positions(
                     except Exception:
                         notes_data = {}
 
+                    exit_limit_price = current_option_price
                     if is_spread and notes_data.get("short_strike"):
-                        # Use market order for spread close — always want out on stop/target
+                        exit_limit_price = _spread_exit_limit_price(position, current_option_price)
+                        # Use a limit credit for spread close; market spread exits can slip badly.
                         ok, oid, _ = broker.place_spread_order(
                             ticker       = ticker,
                             expiration   = position.get("expiration", ""),
@@ -1639,8 +1651,8 @@ def evaluate_open_positions(
                             short_strike = notes_data["short_strike"],
                             side         = "sell",
                             quantity     = position.get("contracts", 1),
-                            net_limit_price = current_option_price,
-                            market_order = True
+                            net_limit_price = exit_limit_price,
+                            market_order = False
                         )
                     else:
                         # Use market order for single-leg close — always want out on stop/target
@@ -1651,7 +1663,7 @@ def evaluate_open_positions(
                             strike       = position.get("strike", 0),
                             side         = "sell_to_close",
                             quantity     = position.get("contracts", 1),
-                            limit_price  = current_option_price,
+                            limit_price  = exit_limit_price,
                             market_order = True
                         )
                     if ok:
@@ -1666,9 +1678,13 @@ def evaluate_open_positions(
                             strike=position.get("strike", 0),
                             expiration=position.get("expiration", ""),
                             quantity=position.get("contracts", 1),
-                            limit_price=current_option_price,
+                            limit_price=exit_limit_price,
                             position_id=position_id,
-                            raw_payload={"exit_reason": hard_reason, "market_order": True},
+                            raw_payload={
+                                "exit_reason": hard_reason,
+                                "market_order": not (is_spread and notes_data.get("short_strike")),
+                                "estimated_mid": current_option_price,
+                            },
                             notes="hard_exit",
                         )
                         logger.info(f"  Closing order placed for {ticker} order={oid} — waiting for broker fill confirmation")
@@ -1678,7 +1694,7 @@ def evaluate_open_positions(
                                 "ticker": ticker,
                                 "exit_reason": hard_reason,
                                 "submitted_at": datetime.now().isoformat(),
-                                "estimated_exit_price": current_option_price,
+                                "estimated_exit_price": exit_limit_price,
                                 "position": position,
                                 "regime": regime,
                                 "snapshot": snapshot,
@@ -1853,7 +1869,9 @@ def evaluate_open_positions(
                     except Exception:
                         notes_data = {}
 
+                    exit_limit_price = current_option_price
                     if is_spread and notes_data.get("short_strike"):
+                        exit_limit_price = _spread_exit_limit_price(position, current_option_price)
                         ok, oid, _ = broker.place_spread_order(
                             ticker       = ticker,
                             expiration   = position.get("expiration", ""),
@@ -1862,7 +1880,7 @@ def evaluate_open_positions(
                             short_strike = notes_data["short_strike"],
                             side         = "sell",
                             quantity     = position.get("contracts", 1),
-                            net_limit_price = current_option_price
+                            net_limit_price = exit_limit_price
                         )
                     else:
                         ok, oid, _ = broker.place_option_order(
@@ -1872,7 +1890,7 @@ def evaluate_open_positions(
                             strike       = position.get("strike", 0),
                             side         = "sell_to_close",
                             quantity     = position.get("contracts", 1),
-                            limit_price  = current_option_price,
+                            limit_price  = exit_limit_price,
                             market_order = True
                         )
                     if ok:
@@ -1887,9 +1905,13 @@ def evaluate_open_positions(
                             strike=position.get("strike", 0),
                             expiration=position.get("expiration", ""),
                             quantity=position.get("contracts", 1),
-                            limit_price=current_option_price,
+                            limit_price=exit_limit_price,
                             position_id=position_id,
-                            raw_payload={"exit_reason": "AGENT_EXIT", "market_order": True},
+                            raw_payload={
+                                "exit_reason": "AGENT_EXIT",
+                                "market_order": not (is_spread and notes_data.get("short_strike")),
+                                "estimated_mid": current_option_price,
+                            },
                             notes="agent_exit",
                         )
                         logger.info(f"  Exit order placed for {ticker} order={oid} — waiting for broker fill confirmation")
@@ -1899,7 +1921,7 @@ def evaluate_open_positions(
                                 "ticker": ticker,
                                 "exit_reason": "AGENT_EXIT",
                                 "submitted_at": datetime.now().isoformat(),
-                                "estimated_exit_price": current_option_price,
+                                "estimated_exit_price": exit_limit_price,
                                 "position": position,
                                 "regime": regime,
                                 "snapshot": snapshot,
@@ -2425,6 +2447,30 @@ def evaluate_new_candidates(
                                             max(min(raw_executable_limit, capped_executable_limit), use_price),
                                             2,
                                         )
+                                        max_raw_ask_mult = getattr(
+                                            cfg, "SPREAD_ENTRY_MAX_RAW_ASK_MULT", 1.35
+                                        )
+                                        if raw_executable_limit > use_price * max_raw_ask_mult:
+                                            raw_spread_pct = (
+                                                (raw_executable_limit - use_price) / use_price
+                                                if use_price > 0 else None
+                                            )
+                                            db.update_candidate_execution(
+                                                candidate_eval_id,
+                                                action="EXECUTION_SKIP",
+                                                refreshed_mid=use_price,
+                                                executable_limit_price=raw_executable_limit,
+                                                executable_divergence=raw_spread_pct,
+                                                bid_ask_spread_pct=raw_spread_pct,
+                                                fill_status="SKIPPED_SPREAD_WIDE_MARKET",
+                                            )
+                                            logger.warning(
+                                                f"  {ticker} spread market too wide "
+                                                f"(mid=${use_price:.2f} raw_ask=${raw_executable_limit:.2f} "
+                                                f"max={max_raw_ask_mult:.0%} of mid) - skipping trade"
+                                            )
+                                            _just_tracked = False
+                                            continue
                                         fresh = {
                                             "bid": round(max(long_q.get("bid", 0) - short_q.get("ask", 0), 0.01), 2),
                                             "ask": executable_limit,
