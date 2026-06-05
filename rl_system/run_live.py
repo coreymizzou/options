@@ -1753,9 +1753,10 @@ def evaluate_open_positions(
                 position.get("raw_scanner_data") or "{}"
             )
             entry_snapshot["regime_data"] = regime
+            agent_exit_reason = result.get("exit_reason", hard_reason)
             agent.update_on_close(
                 position=position,
-                exit_reason=hard_reason,
+                exit_reason=agent_exit_reason,
                 realized_r=realized_r,
                 entry_market_snapshot=build_market_snapshot(entry_snapshot),
                 exit_market_snapshot=snapshot,
@@ -3130,7 +3131,7 @@ def print_status(tracker: PositionTracker, agent: DecisionAgent):
             r        = p.get("realized_r", 0) or 0
             reason   = (p.get("exit_reason") or "?")[:13]
             date     = (p.get("exit_time") or "")[:16]
-            sign     = "+" if pnl >= 0 else ""
+            sign     = "+" if pnl >= 0 else "-"
             print(f"  {ticker:<8} {strategy:<20} "
                   f"${entry:>6.2f} ${exit_p:>6.2f} "
                   f"{sign}${abs(pnl):>7.2f} "
@@ -3870,9 +3871,13 @@ def main():
                                 entry_snap["regime_data"] = exit_data.get("regime", regime)
                                 exit_snapshot = exit_data.get("snapshot") or {}
                                 exit_snapshot["option_mid"] = fill_price
+                                agent_exit_reason = result.get(
+                                    "exit_reason",
+                                    exit_data.get("exit_reason", "BROKER_EXIT"),
+                                )
                                 agent.update_on_close(
                                     position=position,
-                                    exit_reason=exit_data.get("exit_reason", "BROKER_EXIT"),
+                                    exit_reason=agent_exit_reason,
                                     realized_r=realized_r,
                                     entry_market_snapshot=build_market_snapshot(entry_snap),
                                     exit_market_snapshot=exit_snapshot,

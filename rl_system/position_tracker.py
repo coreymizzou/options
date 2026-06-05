@@ -356,6 +356,12 @@ class PositionTracker:
         realized_pnl = exit_value - entry_cost
         initial_risk = entry_cost
         realized_r   = realized_pnl / initial_risk if initial_risk > 0 else 0
+        reason_upper = (exit_reason or "").upper()
+        if realized_pnl < 0 and "TARGET" in reason_upper:
+            exit_reason = (
+                "EXIT_SLIPPAGE_LOSS: target signal filled below entry "
+                f"({realized_r:+.2f}R)"
+            )
 
         db.close_position(
             position_id  = position_id,
